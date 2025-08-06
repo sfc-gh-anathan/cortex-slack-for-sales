@@ -2,7 +2,7 @@ name: retail_sales_data
 tables:
   - name: RETAIL_SALES_DATASET
     base_table:
-      database: SLACK_DEMO
+      database: SLACK_SALES_DEMO
       schema: SLACK_SCHEMA
       table: RETAIL_SALES_DATASET
     dimensions:

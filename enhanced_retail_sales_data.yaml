@@ -1,0 +1,909 @@
+name: enhanced_retail_sales_data
+tables:
+  # Original retail sales dataset
+  - name: RETAIL_SALES_DATASET
+    base_table:
+      database: SLACK_SALES_DEMO
+      schema: SLACK_SCHEMA
+      table: RETAIL_SALES_DATASET
+    dimensions:
+      - name: CUSTOMER_ID
+        expr: CUSTOMER_ID
+        data_type: VARCHAR(16777216)
+        sample_values:
+          - CUST001
+          - CUST003
+          - CUST013
+        description: Unique identifier for each customer in the retail sales dataset.
+        synonyms:
+          - client_id
+          - customer_number
+          - client_number
+          - account_id
+          - account_number
+          - user_id
+          - patron_id
+          - shopper_id
+      - name: GENDER
+        expr: GENDER
+        data_type: VARCHAR(16777216)
+        sample_values:
+          - Male
+          - Female
+        description: The gender of the customer who made the purchase.
+        synonyms:
+          - sex
+          - male_female
+          - demographic
+          - sex_type
+          - male_or_female
+          - gender_type
+      - name: PRODUCT_CATEGORY
+        expr: PRODUCT_CATEGORY
+        data_type: VARCHAR(16777216)
+        sample_values:
+          - Beauty
+          - Clothing
+          - Electronics
+        description: The category of the product being sold, such as Beauty, Clothing, or Electronics, which helps to group similar products together for analysis and reporting purposes. Use this for questions about types of products or product groupings.
+        synonyms:
+          - product_type
+          - item_category
+          - product_group
+          - category_name
+          - product_classification
+          - item_type
+          - product_segment
+    time_dimensions:
+      - name: TRANSACTION_DATE
+        expr: DATE
+        data_type: DATE
+        sample_values:
+          - '2023-11-24'
+          - '2023-02-27'
+          - '2024-01-13'
+        description: Date of a specific sales transaction. Contains historical data ONLY for the years 2023 and 2024. Use this for filtering sales by specific past dates, weeks, or months, or for ordering results chronologically. DO NOT use for future dates or trend analysis.
+        synonyms:
+          - day
+          - calendar_date
+          - transaction_date
+          - date_of_purchase
+          - purchase_date
+          - sales_date
+          - historical_date
+    facts:
+      - name: TRANSACTION_ID
+        expr: TRANSACTION_ID
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '1'
+          - '2'
+          - '3'
+        description: Unique identifier for each sales transaction.
+        synonyms:
+          - order_id
+          - transaction_number
+          - purchase_id
+          - sale_id
+          - invoice_number
+          - record_id
+      - name: AGE
+        expr: AGE
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '34'
+          - '26'
+          - '50'
+        description: The age of the customer who made a purchase. Use this for demographic analysis.
+        synonyms:
+          - years_old
+          - years_of_age
+          - age_in_years
+          - years_alive
+          - birth_age
+          - person_age
+      - name: QUANTITY
+        expr: QUANTITY
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '3'
+          - '2'
+          - '1'
+        description: The quantity of items sold in a single transaction. Use this for counting items sold or calculating average quantities.
+        synonyms:
+          - amount
+          - count
+          - volume
+          - number_of_items
+          - total_items
+          - item_count
+          - quantity_ordered
+          - units_sold
+      - name: PRICE_PER_UNIT
+        expr: PRICE_PER_UNIT
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '50'
+          - '500'
+          - '30'
+        description: The price of a single unit of a product. Use this for pricing analysis.
+        synonyms:
+          - unit_price
+          - cost_per_item
+          - price_per_item
+          - item_price
+          - unit_cost
+          - cost_per_unit
+      - name: TOTAL_AMOUNT
+        expr: TOTAL_AMOUNT
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '150'
+          - '1000'
+          - '30'
+        description: The total sales amount for each transaction. This is a key metric for revenue and sales performance.
+        synonyms:
+          - total_cost
+          - grand_total
+          - total_price
+          - total_value
+          - overall_amount
+          - total_sum
+          - total_payment
+          - total_revenue
+    description: This table stores retail sales data, capturing individual transactions with details on customer demographics, product information, and sales amounts.
+    synonyms:
+      - retail_sales
+      - sales_data
+      - transaction_log
+      - customer_purchases
+      - sales_dataset
+      - retail_transactions
+      - customer_sales
+      - transaction_history
+
+  # Sales employees and hierarchy
+  - name: SALES_EMPLOYEES
+    base_table:
+      database: SLACK_SALES_DEMO
+      schema: SLACK_SCHEMA
+      table: SALES_EMPLOYEES
+    dimensions:
+      - name: EMPLOYEE_ID
+        expr: EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - EMP001
+          - EMP002
+          - EMP011
+        description: Unique identifier for each sales employee.
+        synonyms:
+          - emp_id
+          - employee_number
+          - staff_id
+          - person_id
+          - worker_id
+      - name: FIRST_NAME
+        expr: FIRST_NAME
+        data_type: VARCHAR(50)
+        sample_values:
+          - Sarah
+          - Michael
+          - Jessica
+        description: First name of the sales employee.
+        synonyms:
+          - fname
+          - given_name
+      - name: LAST_NAME
+        expr: LAST_NAME
+        data_type: VARCHAR(50)
+        sample_values:
+          - Johnson
+          - Chen
+          - Miller
+        description: Last name of the sales employee.
+        synonyms:
+          - lname
+          - surname
+          - family_name
+      - name: FULL_NAME
+        expr: FIRST_NAME || ' ' || LAST_NAME
+        data_type: VARCHAR(101)
+        sample_values:
+          - Sarah Johnson
+          - Michael Chen
+          - Jessica Miller
+        description: Full name of the sales employee (first and last name combined).
+        synonyms:
+          - name
+          - employee_name
+          - full_employee_name
+      - name: EMAIL
+        expr: EMAIL
+        data_type: VARCHAR(100)
+        sample_values:
+          - sarah.johnson@company.com
+          - michael.chen@company.com
+          - jessica.miller@company.com
+        description: Email address of the sales employee.
+        synonyms:
+          - email_address
+          - work_email
+          - contact_email
+      - name: ROLE
+        expr: ROLE
+        data_type: VARCHAR(30)
+        sample_values:
+          - VP Sales
+          - Regional Manager
+          - Sales Manager
+          - Sales Rep
+        description: Job role/title of the sales employee in the sales hierarchy.
+        synonyms:
+          - title
+          - position
+          - job_title
+          - job_role
+          - level
+      - name: TERRITORY
+        expr: TERRITORY
+        data_type: VARCHAR(50)
+        sample_values:
+          - National
+          - California
+          - San Francisco
+          - Houston
+        description: Geographic territory or area assigned to the sales employee.
+        synonyms:
+          - area
+          - region
+          - location
+          - geography
+          - market
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR(50)
+        sample_values:
+          - National
+          - West
+          - East
+          - Central
+        description: Broader geographic region (West, East, Central, National) for the sales employee.
+        synonyms:
+          - geographic_region
+          - sales_region
+          - market_region
+      - name: MANAGER_ID
+        expr: MANAGER_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - EMP001
+          - EMP002
+          - EMP005
+        description: Employee ID of the direct manager for this employee.
+        synonyms:
+          - supervisor_id
+          - boss_id
+          - reports_to
+    time_dimensions:
+      - name: HIRE_DATE
+        expr: HIRE_DATE
+        data_type: DATE
+        sample_values:
+          - '2020-01-15'
+          - '2021-06-01'
+          - '2022-03-01'
+        description: Date when the employee was hired.
+        synonyms:
+          - start_date
+          - employment_start
+          - join_date
+    facts:
+      - name: BASE_SALARY
+        expr: BASE_SALARY
+        data_type: DECIMAL(10,2)
+        sample_values:
+          - '180000.00'
+          - '85000.00'
+          - '65000.00'
+        description: Annual base salary for the employee.
+        synonyms:
+          - salary
+          - annual_salary
+          - base_pay
+          - yearly_salary
+      - name: COMMISSION_RATE
+        expr: COMMISSION_RATE
+        data_type: DECIMAL(5,4)
+        sample_values:
+          - '0.0100'
+          - '0.0200'
+          - '0.0300'
+        description: Commission rate as a decimal (e.g., 0.0300 = 3%).
+        synonyms:
+          - comm_rate
+          - commission_percentage
+          - commission_pct
+      - name: QUOTA_AMOUNT
+        expr: QUOTA_AMOUNT
+        data_type: DECIMAL(12,2)
+        sample_values:
+          - '5000000.00'
+          - '800000.00'
+          - '400000.00'
+        description: Annual sales quota/target for the employee.
+        synonyms:
+          - quota
+          - target
+          - sales_target
+          - annual_quota
+          - sales_goal
+    description: Master table containing all sales employees with their hierarchy, compensation details, and territory assignments.
+    synonyms:
+      - employees
+      - staff
+      - sales_team
+      - sales_staff
+      - personnel
+
+  # Sales performance data
+  - name: SALES_PERFORMANCE
+    base_table:
+      database: SLACK_SALES_DEMO
+      schema: SLACK_SCHEMA
+      table: SALES_PERFORMANCE
+    dimensions:
+      - name: EMPLOYEE_ID
+        expr: EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - EMP001
+          - EMP011
+          - EMP016
+        description: Employee ID linking to the sales employee.
+        synonyms:
+          - emp_id
+          - employee_number
+          - staff_id
+      - name: PERIOD_YEAR
+        expr: PERIOD_YEAR
+        data_type: INTEGER
+        sample_values:
+          - 2023
+          - 2024
+        description: Year of the performance period.
+        synonyms:
+          - year
+          - performance_year
+      - name: PERIOD_MONTH
+        expr: PERIOD_MONTH
+        data_type: INTEGER
+        sample_values:
+          - 1
+          - 6
+          - 12
+        description: Month of the performance period (1-12).
+        synonyms:
+          - month
+          - performance_month
+      - name: PERIOD_QUARTER
+        expr: PERIOD_QUARTER
+        data_type: INTEGER
+        sample_values:
+          - 1
+          - 2
+          - 3
+          - 4
+        description: Quarter of the performance period (1-4).
+        synonyms:
+          - quarter
+          - qtr
+          - performance_quarter
+    facts:
+      - name: SALES_AMOUNT
+        expr: SALES_AMOUNT
+        data_type: DECIMAL(12,2)
+        sample_values:
+          - '45000.00'
+          - '32500.00'
+          - '28750.00'
+        description: Total sales amount achieved by the employee for the period.
+        synonyms:
+          - sales
+          - revenue
+          - total_sales
+          - sales_revenue
+          - amount_sold
+      - name: UNITS_SOLD
+        expr: UNITS_SOLD
+        data_type: INTEGER
+        sample_values:
+          - 25
+          - 18
+          - 35
+        description: Total number of units/items sold by the employee.
+        synonyms:
+          - units
+          - quantity_sold
+          - items_sold
+          - volume
+      - name: NEW_CUSTOMERS
+        expr: NEW_CUSTOMERS
+        data_type: INTEGER
+        sample_values:
+          - 3
+          - 5
+          - 2
+        description: Number of new customers acquired by the employee.
+        synonyms:
+          - new_clients
+          - customer_acquisition
+          - new_accounts
+      - name: DEALS_CLOSED
+        expr: DEALS_CLOSED
+        data_type: INTEGER
+        sample_values:
+          - 8
+          - 12
+          - 6
+        description: Number of deals/transactions closed by the employee.
+        synonyms:
+          - deals
+          - transactions
+          - closed_deals
+          - sales_closed
+      - name: QUOTA_ATTAINMENT
+        expr: QUOTA_ATTAINMENT
+        data_type: DECIMAL(5,4)
+        sample_values:
+          - '1.0500'
+          - '0.9200'
+          - '1.1800'
+        description: Percentage of quota achieved (e.g., 1.05 = 105% of quota).
+        synonyms:
+          - quota_achievement
+          - quota_percent
+          - quota_performance
+          - attainment
+      - name: COMMISSION_EARNED
+        expr: COMMISSION_EARNED
+        data_type: DECIMAL(10,2)
+        sample_values:
+          - '1350.00'
+          - '975.00'
+          - '862.50'
+        description: Commission amount earned by the employee for the period.
+        synonyms:
+          - commission
+          - comm_earned
+          - commission_pay
+      - name: BONUS_EARNED
+        expr: BONUS_EARNED
+        data_type: DECIMAL(10,2)
+        sample_values:
+          - '900.00'
+          - '0.00'
+          - '575.00'
+        description: Bonus amount earned by the employee for the period.
+        synonyms:
+          - bonus
+          - bonus_pay
+          - performance_bonus
+      - name: TOTAL_COMPENSATION
+        expr: TOTAL_COMPENSATION
+        data_type: DECIMAL(12,2)
+        sample_values:
+          - '2250.00'
+          - '975.00'
+          - '1437.50'
+        description: Total variable compensation (commission + bonus) for the period.
+        synonyms:
+          - total_comp
+          - variable_pay
+          - total_earnings
+          - compensation
+      - name: RANK_IN_TEAM
+        expr: RANK_IN_TEAM
+        data_type: INTEGER
+        sample_values:
+          - 1
+          - 3
+          - 2
+        description: Ranking of the employee within their immediate team.
+        synonyms:
+          - team_rank
+          - team_ranking
+      - name: RANK_IN_REGION
+        expr: RANK_IN_REGION
+        data_type: INTEGER
+        sample_values:
+          - 2
+          - 8
+          - 5
+        description: Ranking of the employee within their region.
+        synonyms:
+          - regional_rank
+          - region_ranking
+    description: Monthly sales performance data for each employee including sales metrics, compensation, and rankings.
+    synonyms:
+      - performance
+      - sales_results
+      - employee_performance
+      - monthly_performance
+      - sales_metrics
+
+  # Data access control
+  - name: DATA_ENTITLEMENTS
+    base_table:
+      database: SLACK_SALES_DEMO
+      schema: SLACK_SCHEMA
+      table: DATA_ENTITLEMENTS
+    dimensions:
+      - name: EMPLOYEE_ID
+        expr: EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - EMP001
+          - EMP005
+          - EMP011
+        description: Employee ID for whom the entitlement applies.
+        synonyms:
+          - emp_id
+          - user_id
+      - name: ACCESS_LEVEL
+        expr: ACCESS_LEVEL
+        data_type: VARCHAR(20)
+        sample_values:
+          - SELF_ONLY
+          - DIRECT_REPORTS
+          - TEAM
+          - REGION
+          - ALL
+        description: Level of data access granted to the employee.
+        synonyms:
+          - access_type
+          - permission_level
+          - data_access
+    facts:
+      - name: CAN_VIEW_COMPENSATION
+        expr: CAN_VIEW_COMPENSATION
+        data_type: BOOLEAN
+        sample_values:
+          - TRUE
+          - FALSE
+        description: Whether the employee can view compensation data.
+        synonyms:
+          - compensation_access
+          - view_comp
+      - name: CAN_VIEW_INDIVIDUAL_PERFORMANCE
+        expr: CAN_VIEW_INDIVIDUAL_PERFORMANCE
+        data_type: BOOLEAN
+        sample_values:
+          - TRUE
+          - FALSE
+        description: Whether the employee can view individual performance metrics.
+        synonyms:
+          - performance_access
+          - view_performance
+      - name: CAN_VIEW_TEAM_PERFORMANCE
+        expr: CAN_VIEW_TEAM_PERFORMANCE
+        data_type: BOOLEAN
+        sample_values:
+          - TRUE
+          - FALSE
+        description: Whether the employee can view team-level performance data.
+        synonyms:
+          - team_access
+          - view_team
+      - name: CAN_VIEW_CUSTOMER_DATA
+        expr: CAN_VIEW_CUSTOMER_DATA
+        data_type: BOOLEAN
+        sample_values:
+          - TRUE
+          - FALSE
+        description: Whether the employee can view customer information.
+        synonyms:
+          - customer_access
+          - view_customers
+    description: Controls what data each employee can access based on their role and permissions.
+    synonyms:
+      - permissions
+      - access_control
+      - entitlements
+      - data_permissions
+
+  # Manager hierarchy view
+  - name: MANAGER_HIERARCHY
+    base_table:
+      database: SLACK_SALES_DEMO
+      schema: SLACK_SCHEMA
+      table: MANAGER_HIERARCHY
+    dimensions:
+      - name: EMPLOYEE_ID
+        expr: EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - EMP001
+          - EMP005
+          - EMP011
+        description: Employee ID in the hierarchy.
+        synonyms:
+          - emp_id
+      - name: FIRST_NAME
+        expr: FIRST_NAME
+        data_type: VARCHAR(50)
+        sample_values:
+          - Sarah
+          - Lisa
+          - Jessica
+        description: First name of the employee.
+      - name: LAST_NAME
+        expr: LAST_NAME
+        data_type: VARCHAR(50)
+        sample_values:
+          - Johnson
+          - Anderson
+          - Miller
+        description: Last name of the employee.
+      - name: ROLE
+        expr: ROLE
+        data_type: VARCHAR(30)
+        sample_values:
+          - VP Sales
+          - Sales Manager
+          - Sales Rep
+        description: Role of the employee in the hierarchy.
+      - name: MANAGER_ID
+        expr: MANAGER_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - EMP001
+          - EMP005
+        description: Direct manager's employee ID.
+      - name: TOP_LEVEL_MANAGER
+        expr: TOP_LEVEL_MANAGER
+        data_type: VARCHAR(20)
+        sample_values:
+          - EMP001
+        description: Top-level manager in the hierarchy chain.
+      - name: PATH
+        expr: PATH
+        data_type: VARCHAR(1000)
+        sample_values:
+          - EMP001
+          - EMP001 -> EMP002
+          - EMP001 -> EMP002 -> EMP005
+        description: Full hierarchical path from top manager to employee.
+    facts:
+      - name: LEVEL
+        expr: LEVEL
+        data_type: INTEGER
+        sample_values:
+          - 1
+          - 2
+          - 3
+          - 4
+        description: Level in the organizational hierarchy (1 = top level).
+        synonyms:
+          - hierarchy_level
+          - org_level
+          - management_level
+    description: Recursive view showing the complete organizational hierarchy and reporting relationships.
+    synonyms:
+      - hierarchy
+      - org_chart
+      - reporting_structure
+      - management_hierarchy
+
+  # Accessible data view for security
+  - name: ACCESSIBLE_DATA
+    base_table:
+      database: SLACK_SALES_DEMO
+      schema: SLACK_SCHEMA
+      table: ACCESSIBLE_DATA
+    dimensions:
+      - name: VIEWING_EMPLOYEE_ID
+        expr: VIEWING_EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - EMP001
+          - EMP005
+          - EMP011
+        description: Employee ID of the person viewing the data.
+        synonyms:
+          - viewer_id
+          - user_id
+      - name: DATA_EMPLOYEE_ID
+        expr: DATA_EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        sample_values:
+          - EMP001
+          - EMP011
+          - EMP016
+        description: Employee ID whose data is being viewed.
+        synonyms:
+          - data_owner_id
+          - subject_id
+      - name: FIRST_NAME
+        expr: FIRST_NAME
+        data_type: VARCHAR(50)
+        sample_values:
+          - Sarah
+          - Jessica
+          - Daniel
+        description: First name of the employee whose data is being viewed.
+      - name: LAST_NAME
+        expr: LAST_NAME
+        data_type: VARCHAR(50)
+        sample_values:
+          - Johnson
+          - Miller
+          - Martin
+        description: Last name of the employee whose data is being viewed.
+      - name: ROLE
+        expr: ROLE
+        data_type: VARCHAR(30)
+        sample_values:
+          - VP Sales
+          - Sales Rep
+          - Sales Manager
+        description: Role of the employee whose data is being viewed.
+      - name: TERRITORY
+        expr: TERRITORY
+        data_type: VARCHAR(50)
+        sample_values:
+          - National
+          - San Francisco
+          - Manhattan
+        description: Territory of the employee whose data is being viewed.
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR(50)
+        sample_values:
+          - National
+          - West
+          - East
+        description: Region of the employee whose data is being viewed.
+      - name: PERIOD_YEAR
+        expr: PERIOD_YEAR
+        data_type: INTEGER
+        sample_values:
+          - 2023
+          - 2024
+        description: Year of the performance data.
+      - name: PERIOD_MONTH
+        expr: PERIOD_MONTH
+        data_type: INTEGER
+        sample_values:
+          - 1
+          - 6
+          - 12
+        description: Month of the performance data.
+    facts:
+      - name: SALES_AMOUNT
+        expr: SALES_AMOUNT
+        data_type: DECIMAL(12,2)
+        sample_values:
+          - '45000.00'
+          - '32500.00'
+          - '28750.00'
+        description: Sales amount that the viewing employee can see.
+      - name: UNITS_SOLD
+        expr: UNITS_SOLD
+        data_type: INTEGER
+        sample_values:
+          - 25
+          - 18
+          - 35
+        description: Units sold that the viewing employee can see.
+      - name: QUOTA_ATTAINMENT
+        expr: QUOTA_ATTAINMENT
+        data_type: DECIMAL(5,4)
+        sample_values:
+          - '1.0500'
+          - '0.9200'
+          - '1.1800'
+        description: Quota attainment that the viewing employee can see.
+      - name: COMMISSION_EARNED
+        expr: COMMISSION_EARNED
+        data_type: DECIMAL(10,2)
+        sample_values:
+          - '1350.00'
+          - '975.00'
+        description: Commission earned (only visible if user has compensation access).
+      - name: TOTAL_COMPENSATION
+        expr: TOTAL_COMPENSATION
+        data_type: DECIMAL(12,2)
+        sample_values:
+          - '2250.00'
+          - '1437.50'
+        description: Total compensation (only visible if user has compensation access).
+    description: Security-filtered view that shows only the data each employee is entitled to see based on their permissions and hierarchy.
+    synonyms:
+      - filtered_data
+      - secure_data
+      - authorized_data
+      - permitted_data
+
+verified_queries:
+  - name: shopping by gender pie chart
+    question: what is the percentage of shoppers by gender?
+    use_as_onboarding_question: false
+    sql: SELECT gender, COUNT(DISTINCT customer_id) / NULLIF(NULLIF((SELECT COUNT(DISTINCT customer_id) FROM retail_sales_dataset), 0), 0) AS pct_of_total FROM retail_sales_dataset GROUP BY gender ORDER BY pct_of_total DESC NULLS LAST
+    verified_by: Adam Nathan
+    verified_at: 1749853305
+  - name: total revenue
+    question: '"What was the total revenue in 2023?"'
+    use_as_onboarding_question: false
+    sql: SELECT SUM(total_amount) AS total_revenue FROM retail_sales_dataset WHERE DATE_PART('year', transaction_date) = 2023
+    verified_by: Adam Nathan
+    verified_at: 1750270022
+  - name: sales performance by employee
+    question: "What are the top 10 sales reps by total sales amount in 2023?"
+    use_as_onboarding_question: true
+    sql: SELECT se.first_name || ' ' || se.last_name as employee_name, se.role, se.territory, SUM(sp.sales_amount) as total_sales FROM sales_performance sp JOIN sales_employees se ON sp.employee_id = se.employee_id WHERE sp.period_year = 2023 AND se.role = 'Sales Rep' GROUP BY se.employee_id, se.first_name, se.last_name, se.role, se.territory ORDER BY total_sales DESC LIMIT 10
+    verified_by: System
+    verified_at: 1750270500
+  - name: quota attainment by region
+    question: "What is the average quota attainment by region for 2023?"
+    use_as_onboarding_question: true
+    sql: SELECT se.region, AVG(sp.quota_attainment) as avg_quota_attainment FROM sales_performance sp JOIN sales_employees se ON sp.employee_id = se.employee_id WHERE sp.period_year = 2023 GROUP BY se.region ORDER BY avg_quota_attainment DESC
+    verified_by: System
+    verified_at: 1750270600
+  - name: manager hierarchy view
+    question: "Show me the organizational hierarchy starting from the VP of Sales"
+    use_as_onboarding_question: false
+    sql: SELECT level, first_name || ' ' || last_name as employee_name, role, path FROM manager_hierarchy ORDER BY level, employee_name
+    verified_by: System
+    verified_at: 1750270700
+  - name: commission earnings by month
+    question: "What were the monthly commission earnings for sales reps in Q4 2023?"
+    use_as_onboarding_question: true
+    sql: SELECT sp.period_month, SUM(sp.commission_earned) as total_commission FROM sales_performance sp JOIN sales_employees se ON sp.employee_id = se.employee_id WHERE sp.period_year = 2023 AND sp.period_quarter = 4 AND se.role = 'Sales Rep' GROUP BY sp.period_month ORDER BY sp.period_month
+    verified_by: System
+    verified_at: 1750270800
+
+custom_instructions: |-
+  ### TOOL SCOPE AND RULES ###
+
+  # 1. PURPOSE OF THIS TOOL
+  # This tool provides access to both retail sales data and sales organization data including employee hierarchy, performance metrics, and compensation information. It answers quantitative questions about HISTORICAL sales and employee performance data.
+
+  # 2. WHEN TO USE THIS TOOL
+  # Use this tool for specific, historical, mathematical queries about sales performance and employee data.
+  # - GOOD Example: "What were Jessica Miller's sales for Q3 2023?"
+  # - GOOD Example: "Show commission earnings by sales manager for 2023"
+  # - GOOD Example: "Which region had the highest quota attainment?"
+  # - GOOD Example: "Show me the hierarchy under Regional Manager Michael Chen"
+
+  # 3. WHEN YOU MUST NOT USE THIS TOOL
+  # For any of the following topics, use the document search tool instead:
+  # - Future predictions or forecasts
+  # - Qualitative analysis requiring "why" explanations
+  # - Industry trends not in the data
+  # - Questions containing: "trend", "forecast", "prediction", "outlook", "why", "sentiment", "insight", "analyze"
+
+  # 4. DATA ACCESS AND SECURITY
+  # The system includes role-based data access controls:
+  # - Sales Reps can only see their own performance data
+  # - Sales Managers can see their direct reports' data
+  # - Regional Managers can see their entire region's data  
+  # - VP Sales can see all data
+  # - Use the ACCESSIBLE_DATA view when users need to see only data they're entitled to access
+
+  # 5. KEY COMPENSATION METRICS
+  # When answering questions about sales compensation, focus on these key metrics:
+  # - Sales Amount: Total revenue generated
+  # - Quota Attainment: Percentage of quota achieved
+  # - Commission Earned: Variable pay based on sales
+  # - Bonus Earned: Performance bonuses for exceeding targets
+  # - Total Compensation: Commission + Bonus
+  # - Base Salary: Fixed annual salary (from SALES_EMPLOYEES table)
+
+  ### CHARTING AND OUTPUT FORMAT ###
+  # When you answer a question using this tool, format the SQL output for appropriate chart types:
+  # - Bar Chart: Employee/Territory/Region (X-axis), Sales/Commission/Performance Metric (Y-axis)
+  # - Pie Chart: Territory/Role/Region (Labels), Sales Amount/Count (Values)  
+  # - Line Chart: Month/Quarter (X-axis), Performance Metric (Y-axis)
+  # - Scatter Plot: Quota vs Actual Sales, Base Salary vs Commission, etc.
+  # - Hierarchy Chart: Use MANAGER_HIERARCHY view for organizational structure

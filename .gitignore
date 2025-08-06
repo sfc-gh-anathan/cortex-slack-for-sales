@@ -1,12 +1,51 @@
-.DS_Store
-rsa_key.p8
-rsa_key.pub
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.Python
+
+# Virtual Environments
 .env
-__pycache__
-.venv/
-venv/bin/*
-venv/lib/*
-venv/include/*
-venv/share/*
-default.sqlite
-pie_chart.jpg
+.venv
+env/
+venv/
+
+# Environment Variables & Secrets
+.env*
+*.env
+credentials.json
+fill-in-the-env-FILLED.txt
+
+# Snowflake & Database
+snowflake_config.json
+*.pem
+*.p8
+private_key*
+*.key
+
+# Slack & API Keys
+slack_token*
+bot_token*
+api_key*
+*.token
+
+# IDE & OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary Files
+*.tmp
+temp/
+
+# Backup Files
+*.bak
+*~
+
+# Snowflake CLI
+.snowsql/
