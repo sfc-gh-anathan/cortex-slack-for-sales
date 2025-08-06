@@ -15,6 +15,7 @@ venv/
 *.env
 credentials.json
 fill-in-the-env-FILLED.txt
+secret.txt
 
 # Snowflake & Database
 snowflake_config.json

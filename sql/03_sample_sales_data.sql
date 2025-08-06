@@ -80,88 +80,173 @@ INSERT INTO CUSTOMER_ASSIGNMENTS VALUES
 ('ASSIGN027', 'EMP024', 'CUST027', '2023-01-01', TRUE, CURRENT_TIMESTAMP()),
 ('ASSIGN028', 'EMP024', 'CUST028', '2023-01-01', TRUE, CURRENT_TIMESTAMP());
 
--- 3. Insert Sales Performance Data (Monthly data for 2023)
--- This generates performance data for each sales rep for each month of 2023
-INSERT INTO SALES_PERFORMANCE 
-WITH monthly_performance AS (
+-- 3. Generate ~1000 Sales Transactions from Jan 2023 to present
+-- First, let's create a larger customer base
+INSERT INTO CUSTOMER_ASSIGNMENTS 
+WITH customer_numbers AS (
+    SELECT ROW_NUMBER() OVER (ORDER BY SEQ4()) as cust_num
+    FROM TABLE(GENERATOR(ROWCOUNT => 200)) -- Generate 200 customers
+),
+sales_reps AS (
+    SELECT EMPLOYEE_ID 
+    FROM SALES_EMPLOYEES 
+    WHERE ROLE = 'Sales Rep' AND ACTIVE = TRUE
+),
+expanded_customers AS (
     SELECT 
-        'PERF' || LPAD(ROW_NUMBER() OVER (ORDER BY e.EMPLOYEE_ID, m.month_num), 6, '0') as PERFORMANCE_ID,
-        e.EMPLOYEE_ID,
-        2023 as PERIOD_YEAR,
-        m.month_num as PERIOD_MONTH,
-        CASE 
-            WHEN m.month_num <= 3 THEN 1
-            WHEN m.month_num <= 6 THEN 2  
-            WHEN m.month_num <= 9 THEN 3
-            ELSE 4
-        END as PERIOD_QUARTER,
-        -- Generate realistic sales amounts based on role and seasonality
-        CASE e.ROLE
-            WHEN 'Sales Rep' THEN 
-                ROUND((e.QUOTA_AMOUNT / 12) * (0.8 + RANDOM() * 0.6) * 
-                      CASE m.month_num WHEN 12 THEN 1.3 WHEN 11 THEN 1.2 WHEN 3 THEN 1.1 ELSE 1.0 END, 2)
-            WHEN 'Sales Manager' THEN 
-                ROUND((e.QUOTA_AMOUNT / 12) * (0.85 + RANDOM() * 0.4) * 
-                      CASE m.month_num WHEN 12 THEN 1.3 WHEN 11 THEN 1.2 WHEN 3 THEN 1.1 ELSE 1.0 END, 2)
-            ELSE 
-                ROUND((e.QUOTA_AMOUNT / 12) * (0.9 + RANDOM() * 0.3) * 
-                      CASE m.month_num WHEN 12 THEN 1.3 WHEN 11 THEN 1.2 WHEN 3 THEN 1.1 ELSE 1.0 END, 2)
-        END as SALES_AMOUNT,
-        -- Units sold (roughly proportional to sales amount)
-        ROUND(CASE e.ROLE
-            WHEN 'Sales Rep' THEN 15 + RANDOM() * 25
-            WHEN 'Sales Manager' THEN 35 + RANDOM() * 40  
-            ELSE 60 + RANDOM() * 80
-        END) as UNITS_SOLD,
-        -- New customers per month
-        ROUND(CASE e.ROLE
-            WHEN 'Sales Rep' THEN 1 + RANDOM() * 4
-            WHEN 'Sales Manager' THEN 3 + RANDOM() * 6
-            ELSE 8 + RANDOM() * 12  
-        END) as NEW_CUSTOMERS,
-        -- Deals closed
-        ROUND(CASE e.ROLE
-            WHEN 'Sales Rep' THEN 3 + RANDOM() * 8
-            WHEN 'Sales Manager' THEN 8 + RANDOM() * 15
-            ELSE 20 + RANDOM() * 30
-        END) as DEALS_CLOSED,
-        e.QUOTA_AMOUNT,
-        e.COMMISSION_RATE
-    FROM SALES_EMPLOYEES e
-    CROSS JOIN (
-        SELECT 1 as month_num UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL 
-        SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL 
-        SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL 
-        SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12
-    ) m
-    WHERE e.ACTIVE = TRUE
+        'ASSIGN' || LPAD(ROW_NUMBER() OVER (ORDER BY sr.EMPLOYEE_ID, cn.cust_num), 6, '0') as ASSIGNMENT_ID,
+        sr.EMPLOYEE_ID,
+        'CUST' || LPAD(cn.cust_num, 4, '0') as CUSTOMER_ID,
+        DATE('2023-01-01') + UNIFORM(0, 365, RANDOM()) as ASSIGNED_DATE
+    FROM sales_reps sr
+    CROSS JOIN customer_numbers cn
+    WHERE cn.cust_num <= 200
 )
 SELECT 
-    PERFORMANCE_ID,
+    ASSIGNMENT_ID,
     EMPLOYEE_ID,
-    PERIOD_YEAR,
-    PERIOD_MONTH,
-    PERIOD_QUARTER,
-    SALES_AMOUNT,
-    UNITS_SOLD,
-    NEW_CUSTOMERS,
-    DEALS_CLOSED,
-    ROUND(SALES_AMOUNT / (QUOTA_AMOUNT / 12), 4) as QUOTA_ATTAINMENT,
-    ROUND(SALES_AMOUNT * COMMISSION_RATE, 2) as COMMISSION_EARNED,
-    CASE 
-        WHEN SALES_AMOUNT / (QUOTA_AMOUNT / 12) > 1.2 THEN ROUND(SALES_AMOUNT * 0.02, 2)
-        WHEN SALES_AMOUNT / (QUOTA_AMOUNT / 12) > 1.0 THEN ROUND(SALES_AMOUNT * 0.01, 2)
-        ELSE 0
-    END as BONUS_EARNED,
-    0 as TOTAL_COMPENSATION, -- Will be updated below
+    CUSTOMER_ID,
+    ASSIGNED_DATE,
+    TRUE as IS_PRIMARY,
+    CURRENT_TIMESTAMP() as CREATED_DATE
+FROM expanded_customers;
+
+-- 4. Generate ~1000 Sales Transactions
+INSERT INTO SALES_TRANSACTIONS
+WITH date_sequence AS (
+    SELECT ROW_NUMBER() OVER (ORDER BY SEQ4()) as day_number
+    FROM TABLE(GENERATOR(ROWCOUNT => 730)) -- From Jan 1, 2023 to present (2+ years)
+),
+date_range AS (
+    SELECT 
+        DATE('2023-01-01') + day_number - 1 as transaction_date
+    FROM date_sequence
+    WHERE DATE('2023-01-01') + day_number - 1 <= CURRENT_DATE()
+),
+transaction_data AS (
+    SELECT 
+        'TXN' || LPAD(ROW_NUMBER() OVER (ORDER BY dr.transaction_date, ca.EMPLOYEE_ID), 8, '0') as TRANSACTION_ID,
+        NULL as ORIGINAL_TRANSACTION_ID, -- Will link to retail dataset later if needed
+        ca.EMPLOYEE_ID,
+        ca.CUSTOMER_ID,
+        dr.transaction_date,
+        -- Snowflake product categories with realistic distribution
+        CASE UNIFORM(1, 10, RANDOM())
+            WHEN 1 THEN 'Data Warehouse'
+            WHEN 2 THEN 'Data Warehouse' 
+            WHEN 3 THEN 'Cortex AI'
+            WHEN 4 THEN 'Analytics Workbench'
+            WHEN 5 THEN 'Data Engineering'
+            WHEN 6 THEN 'Data Governance'
+            WHEN 7 THEN 'Data Sharing'
+            WHEN 8 THEN 'Developer Tools'
+            WHEN 9 THEN 'Data Lake'
+            ELSE 'Marketplace'
+        END as PRODUCT_CATEGORY,
+        -- Number of user seats/licenses (1-50 for SaaS)
+        CASE 
+            WHEN UNIFORM(1, 10, RANDOM()) <= 6 THEN UNIFORM(1, 10, RANDOM()) -- Small teams (60%)
+            WHEN UNIFORM(1, 10, RANDOM()) <= 8 THEN UNIFORM(11, 25, RANDOM()) -- Medium teams (20%) 
+            ELSE UNIFORM(26, 50, RANDOM()) -- Large teams (20%)
+        END as QUANTITY,
+        -- Monthly subscription price varies by Snowflake product category
+        CASE 
+            WHEN PRODUCT_CATEGORY = 'Data Warehouse' THEN UNIFORM(100, 600, RANDOM())
+            WHEN PRODUCT_CATEGORY = 'Cortex AI' THEN UNIFORM(200, 1000, RANDOM())
+            WHEN PRODUCT_CATEGORY = 'Analytics Workbench' THEN UNIFORM(150, 500, RANDOM())
+            WHEN PRODUCT_CATEGORY = 'Data Engineering' THEN UNIFORM(120, 450, RANDOM())
+            WHEN PRODUCT_CATEGORY = 'Data Governance' THEN UNIFORM(150, 500, RANDOM())
+            WHEN PRODUCT_CATEGORY = 'Data Sharing' THEN UNIFORM(50, 300, RANDOM())
+            WHEN PRODUCT_CATEGORY = 'Developer Tools' THEN UNIFORM(75, 400, RANDOM())
+            WHEN PRODUCT_CATEGORY = 'Data Lake' THEN UNIFORM(80, 350, RANDOM())
+            ELSE UNIFORM(100, 400, RANDOM()) -- Marketplace
+        END as UNIT_PRICE,
+        -- Deal types with realistic distribution
+        CASE UNIFORM(1, 10, RANDOM())
+            WHEN 1 THEN 'New Business'
+            WHEN 2 THEN 'New Business'
+            WHEN 3 THEN 'New Business'
+            WHEN 4 THEN 'Upsell'
+            WHEN 5 THEN 'Upsell'
+            WHEN 6 THEN 'Renewal'
+            WHEN 7 THEN 'Renewal'
+            WHEN 8 THEN 'Renewal'
+            WHEN 9 THEN 'Cross-sell'
+            ELSE 'Expansion'
+        END as DEAL_TYPE
+    FROM date_range dr
+    CROSS JOIN CUSTOMER_ASSIGNMENTS ca
+    WHERE UNIFORM(0, 1, RANDOM()) < 0.015 -- ~1.5% chance per customer per day = ~1000 transactions
+)
+SELECT 
+    td.TRANSACTION_ID,
+    td.ORIGINAL_TRANSACTION_ID,
+    td.EMPLOYEE_ID,
+    td.CUSTOMER_ID,
+    td.transaction_date as TRANSACTION_DATE,
+    td.PRODUCT_CATEGORY,
+    td.QUANTITY,
+    ROUND(td.UNIT_PRICE, 2) as UNIT_PRICE,
+    ROUND(td.QUANTITY * td.UNIT_PRICE, 2) as TOTAL_AMOUNT,
+    ROUND(td.QUANTITY * td.UNIT_PRICE * se.COMMISSION_RATE, 2) as COMMISSION_AMOUNT,
+    td.DEAL_TYPE,
+    CURRENT_TIMESTAMP() as CREATED_DATE
+FROM transaction_data td
+JOIN SALES_EMPLOYEES se ON td.EMPLOYEE_ID = se.EMPLOYEE_ID
+LIMIT 1000; -- Ensure we get approximately 1000 transactions
+
+-- 5. Generate Sales Performance Data based on actual transactions
+INSERT INTO SALES_PERFORMANCE 
+WITH monthly_aggregates AS (
+    SELECT 
+        st.EMPLOYEE_ID,
+        YEAR(st.TRANSACTION_DATE) as PERIOD_YEAR,
+        MONTH(st.TRANSACTION_DATE) as PERIOD_MONTH,
+        QUARTER(st.TRANSACTION_DATE) as PERIOD_QUARTER,
+        SUM(st.TOTAL_AMOUNT) as SALES_AMOUNT,
+        SUM(st.QUANTITY) as UNITS_SOLD,
+        COUNT(DISTINCT CASE WHEN st.DEAL_TYPE = 'New Business' THEN st.CUSTOMER_ID END) as NEW_CUSTOMERS,
+        COUNT(st.TRANSACTION_ID) as DEALS_CLOSED,
+        SUM(st.COMMISSION_AMOUNT) as COMMISSION_EARNED
+    FROM SALES_TRANSACTIONS st
+    GROUP BY st.EMPLOYEE_ID, YEAR(st.TRANSACTION_DATE), MONTH(st.TRANSACTION_DATE), QUARTER(st.TRANSACTION_DATE)
+),
+performance_with_quotas AS (
+    SELECT 
+        'PERF' || LPAD(ROW_NUMBER() OVER (ORDER BY ma.EMPLOYEE_ID, ma.PERIOD_YEAR, ma.PERIOD_MONTH), 6, '0') as PERFORMANCE_ID,
+        ma.*,
+        se.QUOTA_AMOUNT,
+        se.COMMISSION_RATE,
+        -- Calculate quota attainment (capped at 300%)
+        LEAST(ROUND(ma.SALES_AMOUNT / (se.QUOTA_AMOUNT / 12), 4), 3.0000) as QUOTA_ATTAINMENT,
+        -- Calculate bonus based on performance
+        CASE 
+            WHEN ma.SALES_AMOUNT / (se.QUOTA_AMOUNT / 12) > 1.3 THEN ROUND(ma.SALES_AMOUNT * 0.03, 2)
+            WHEN ma.SALES_AMOUNT / (se.QUOTA_AMOUNT / 12) > 1.2 THEN ROUND(ma.SALES_AMOUNT * 0.02, 2)
+            WHEN ma.SALES_AMOUNT / (se.QUOTA_AMOUNT / 12) > 1.0 THEN ROUND(ma.SALES_AMOUNT * 0.01, 2)
+            ELSE 0
+        END as BONUS_EARNED
+    FROM monthly_aggregates ma
+    JOIN SALES_EMPLOYEES se ON ma.EMPLOYEE_ID = se.EMPLOYEE_ID
+)
+SELECT 
+    pwq.PERFORMANCE_ID,
+    pwq.EMPLOYEE_ID,
+    pwq.PERIOD_YEAR,
+    pwq.PERIOD_MONTH,
+    pwq.PERIOD_QUARTER,
+    COALESCE(pwq.SALES_AMOUNT, 0) as SALES_AMOUNT,
+    COALESCE(pwq.UNITS_SOLD, 0) as UNITS_SOLD,
+    COALESCE(pwq.NEW_CUSTOMERS, 0) as NEW_CUSTOMERS,
+    COALESCE(pwq.DEALS_CLOSED, 0) as DEALS_CLOSED,
+    COALESCE(pwq.QUOTA_ATTAINMENT, 0) as QUOTA_ATTAINMENT,
+    COALESCE(pwq.COMMISSION_EARNED, 0) as COMMISSION_EARNED,
+    COALESCE(pwq.BONUS_EARNED, 0) as BONUS_EARNED,
+    COALESCE(pwq.COMMISSION_EARNED, 0) + COALESCE(pwq.BONUS_EARNED, 0) as TOTAL_COMPENSATION,
     0 as RANK_IN_TEAM,
     0 as RANK_IN_REGION,
     CURRENT_TIMESTAMP() as CREATED_DATE
-FROM monthly_performance;
-
--- Update total compensation
-UPDATE SALES_PERFORMANCE 
-SET TOTAL_COMPENSATION = COMMISSION_EARNED + BONUS_EARNED;
+FROM performance_with_quotas pwq;
 
 -- 4. Insert Data Entitlements
 INSERT INTO DATA_ENTITLEMENTS VALUES
