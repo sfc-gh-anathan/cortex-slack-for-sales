@@ -101,7 +101,7 @@ VP Sales (Sarah Johnson)
 
 1. **Create Tables**: Run `sales_hierarchy_setup.sql` to create the table structure
 2. **Load Sample Data**: Run `sample_sales_data.sql` to populate with realistic data
-3. **Update Semantic Model**: Use `enhanced_retail_sales_data.yaml` for Cortex integration
+3. **Update Semantic Model**: Use `sales_semantic_model.yaml` for Cortex integration
 4. **Test Queries**: Verify hierarchy and access controls work as expected
 
 ## Example Queries

@@ -80,7 +80,7 @@ INSERT INTO CUSTOMER_ASSIGNMENTS VALUES
 ('ASSIGN027', 'EMP024', 'CUST027', '2023-01-01', TRUE, CURRENT_TIMESTAMP()),
 ('ASSIGN028', 'EMP024', 'CUST028', '2023-01-01', TRUE, CURRENT_TIMESTAMP());
 
--- 3. Generate ~1000 Sales Transactions from Jan 2023 to present
+-- 3. Generate ~2000 Sales Transactions from Jan 2023 to Aug 2025
 -- First, let's create a larger customer base
 INSERT INTO CUSTOMER_ASSIGNMENTS 
 WITH customer_numbers AS (
@@ -111,17 +111,17 @@ SELECT
     CURRENT_TIMESTAMP() as CREATED_DATE
 FROM expanded_customers;
 
--- 4. Generate ~1000 Sales Transactions
+-- 4. Generate ~2000 Sales Transactions
 INSERT INTO SALES_TRANSACTIONS
 WITH date_sequence AS (
     SELECT ROW_NUMBER() OVER (ORDER BY SEQ4()) as day_number
-    FROM TABLE(GENERATOR(ROWCOUNT => 730)) -- From Jan 1, 2023 to present (2+ years)
+    FROM TABLE(GENERATOR(ROWCOUNT => 950)) -- From Jan 1, 2023 to Aug 31, 2025 (2.67 years)
 ),
 date_range AS (
     SELECT 
         DATE('2023-01-01') + day_number - 1 as transaction_date
     FROM date_sequence
-    WHERE DATE('2023-01-01') + day_number - 1 <= CURRENT_DATE()
+    WHERE DATE('2023-01-01') + day_number - 1 <= DATE('2025-08-31')
 ),
 transaction_data AS (
     SELECT 
@@ -176,7 +176,7 @@ transaction_data AS (
         END as DEAL_TYPE
     FROM date_range dr
     CROSS JOIN CUSTOMER_ASSIGNMENTS ca
-    WHERE UNIFORM(0, 1, RANDOM()) < 0.015 -- ~1.5% chance per customer per day = ~1000 transactions
+    WHERE UNIFORM(0, 1, RANDOM()) < 0.0035 -- ~0.35% chance per customer per day for better distribution
 )
 SELECT 
     td.TRANSACTION_ID,
@@ -193,7 +193,7 @@ SELECT
     CURRENT_TIMESTAMP() as CREATED_DATE
 FROM transaction_data td
 JOIN SALES_EMPLOYEES se ON td.EMPLOYEE_ID = se.EMPLOYEE_ID
-LIMIT 1000; -- Ensure we get approximately 1000 transactions
+LIMIT 2000; -- Ensure we get approximately 2000 transactions
 
 -- 5. Generate Sales Performance Data based on actual transactions
 INSERT INTO SALES_PERFORMANCE 

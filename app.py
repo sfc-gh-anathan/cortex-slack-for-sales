@@ -61,7 +61,7 @@ last_user_prompt_global = ""
 
 # Constants for Snowflake stored procedure parameters
 SNOWFLAKE_STAGE_PATH = '@"SLACK_SALES_DEMO"."SLACK_SCHEMA"."SLACK_SEMANTIC_MODELS"'
-SNOWFLAKE_FILE_NAME = 'retail_sales_data.yaml'
+SNOWFLAKE_FILE_NAME = 'sales_semantic_model.yaml'
 
 
 # --- Slack Message Handlers ---

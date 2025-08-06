@@ -1,0 +1,436 @@
+name: sales_semantic_model
+tables:
+  # Monthly Performance Aggregates View
+  - name: SALES_SEMANTIC_VIEW
+    base_table:
+      database: SLACK_SALES_DEMO
+      schema: SLACK_SCHEMA
+      table: SALES_SEMANTIC_VIEW
+    primary_key:
+      columns: [PERFORMANCE_ID]
+    dimensions:
+      - name: PERFORMANCE_ID
+        expr: PERFORMANCE_ID
+        data_type: VARCHAR(30)
+        description: Unique identifier for each performance record
+        synonyms:
+          - perf_id
+          - performance_record_id
+      - name: EMPLOYEE_ID
+        expr: EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        description: Unique identifier for each sales employee
+        synonyms:
+          - emp_id
+          - employee_number
+          - staff_id
+      - name: FULL_NAME
+        expr: FULL_NAME
+        data_type: VARCHAR(101)
+        description: Full name of the sales employee
+        synonyms:
+          - employee_name
+          - name
+          - rep_name
+      - name: ROLE
+        expr: ROLE
+        data_type: VARCHAR(30)
+        description: Job role/title of the sales employee
+        synonyms:
+          - title
+          - position
+          - job_title
+      - name: TERRITORY
+        expr: TERRITORY
+        data_type: VARCHAR(50)
+        description: Geographic territory assigned to the employee
+        synonyms:
+          - area
+          - region
+          - location
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR(50)
+        description: Broader geographic region (West, East, Central)
+        synonyms:
+          - geographic_region
+          - sales_region
+      - name: MANAGER_NAME
+        expr: MANAGER_NAME
+        data_type: VARCHAR(101)
+        description: Name of the employee's direct manager
+        synonyms:
+          - supervisor
+          - boss
+          - manager
+      - name: QUOTA_PERFORMANCE_BAND
+        expr: QUOTA_PERFORMANCE_BAND
+        data_type: VARCHAR(20)
+        description: Performance category (Below, Approaching, Meets, Exceeds)
+        synonyms:
+          - performance_level
+          - quota_status
+          - achievement_level
+      - name: ROLE_CATEGORY
+        expr: ROLE_CATEGORY
+        data_type: VARCHAR(30)
+        description: Role grouping (Individual Contributor, Manager, Executive)
+        synonyms:
+          - role_type
+          - employee_level
+      - name: TENURE_CATEGORY
+        expr: TENURE_CATEGORY
+        data_type: VARCHAR(20)
+        description: Employee tenure grouping (New Hire, Developing, Experienced)
+        synonyms:
+          - experience_level
+          - seniority
+      - name: PERIOD_YEAR
+        expr: PERIOD_YEAR
+        data_type: INTEGER
+        description: Year of the performance period
+        synonyms:
+          - year
+          - performance_year
+      - name: PERIOD_MONTH
+        expr: PERIOD_MONTH
+        data_type: INTEGER
+        description: Month of the performance period (1-12)
+        synonyms:
+          - month
+          - performance_month
+      - name: PERIOD_QUARTER
+        expr: PERIOD_QUARTER
+        data_type: INTEGER
+        description: Quarter of the performance period (1-4)
+        synonyms:
+          - quarter
+          - qtr
+    time_dimensions:
+      - name: PERIOD_DATE
+        expr: PERIOD_DATE
+        data_type: DATE
+        description: First day of the performance period month
+        synonyms:
+          - performance_date
+          - period_start
+          - month_date
+      - name: HIRE_DATE
+        expr: HIRE_DATE
+        data_type: DATE
+        description: Date when the employee was hired
+        synonyms:
+          - start_date
+          - employment_start
+    facts:
+      - name: SALES_AMOUNT
+        expr: SALES_AMOUNT
+        data_type: DECIMAL(12,2)
+        description: Total sales amount achieved by the employee for the period
+        synonyms:
+          - sales
+          - revenue
+          - total_sales
+      - name: UNITS_SOLD
+        expr: UNITS_SOLD
+        data_type: INTEGER
+        description: Total number of units/licenses sold by the employee
+        synonyms:
+          - units
+          - licenses_sold
+          - seats_sold
+      - name: QUOTA_ATTAINMENT
+        expr: QUOTA_ATTAINMENT
+        data_type: DECIMAL(8,4)
+        description: Percentage of quota achieved (e.g., 1.05 = 105%)
+        synonyms:
+          - quota_achievement
+          - quota_percent
+          - attainment
+      - name: COMMISSION_EARNED
+        expr: COMMISSION_EARNED
+        data_type: DECIMAL(10,2)
+        description: Commission amount earned by the employee
+        synonyms:
+          - commission
+          - variable_pay
+      - name: TOTAL_COMPENSATION
+        expr: TOTAL_COMPENSATION
+        data_type: DECIMAL(12,2)
+        description: Total variable compensation (commission + bonus)
+        synonyms:
+          - total_comp
+          - earnings
+      - name: BASE_SALARY
+        expr: BASE_SALARY
+        data_type: DECIMAL(10,2)
+        description: Annual base salary for the employee
+        synonyms:
+          - salary
+          - base_pay
+      - name: MONTHLY_QUOTA
+        expr: MONTHLY_QUOTA
+        data_type: DECIMAL(12,2)
+        description: Monthly sales quota target
+        synonyms:
+          - quota
+          - target
+          - monthly_target
+    description: Monthly sales performance data with employee hierarchy and compensation details
+    synonyms:
+      - performance_data
+      - sales_results
+      - monthly_performance
+
+  # Individual Transaction Details View  
+  - name: TRANSACTION_SEMANTIC_VIEW
+    base_table:
+      database: SLACK_SALES_DEMO
+      schema: SLACK_SCHEMA
+      table: TRANSACTION_SEMANTIC_VIEW
+    primary_key:
+      columns: [TRANSACTION_ID]
+    dimensions:
+      - name: TRANSACTION_ID
+        expr: TRANSACTION_ID
+        data_type: VARCHAR(30)
+        description: Unique identifier for each sales transaction
+        synonyms:
+          - txn_id
+          - deal_id
+          - sale_id
+      - name: EMPLOYEE_ID
+        expr: EMPLOYEE_ID
+        data_type: VARCHAR(20)
+        description: Employee ID who made the sale
+        synonyms:
+          - emp_id
+          - sales_rep_id
+      - name: EMPLOYEE_NAME
+        expr: EMPLOYEE_NAME
+        data_type: VARCHAR(101)
+        description: Name of the employee who made the sale
+        synonyms:
+          - rep_name
+          - salesperson
+      - name: CUSTOMER_ID
+        expr: CUSTOMER_ID
+        data_type: VARCHAR(20)
+        description: Unique identifier for the customer
+        synonyms:
+          - client_id
+          - account_id
+      - name: PRODUCT_CATEGORY
+        expr: PRODUCT_CATEGORY
+        data_type: VARCHAR(50)
+        description: Snowflake product category (Data Warehouse, Cortex AI, etc.)
+        synonyms:
+          - product_type
+          - product_line
+          - service_category
+      - name: DEAL_TYPE
+        expr: DEAL_TYPE
+        data_type: VARCHAR(20)
+        description: Type of deal (New Business, Upsell, Renewal, etc.)
+        synonyms:
+          - deal_category
+          - transaction_type
+          - sale_type
+      - name: DEAL_SIZE_CATEGORY
+        expr: DEAL_SIZE_CATEGORY
+        data_type: VARCHAR(20)
+        description: Deal size grouping (Small, Medium, Large Deal)
+        synonyms:
+          - deal_size
+          - transaction_size
+      - name: CUSTOMER_SEGMENT
+        expr: CUSTOMER_SEGMENT
+        data_type: VARCHAR(20)
+        description: Customer segment based on seats (SMB, Mid-Market, Enterprise)
+        synonyms:
+          - segment
+          - customer_type
+          - market_segment
+      - name: TRANSACTION_YEAR
+        expr: TRANSACTION_YEAR
+        data_type: INTEGER
+        description: Year when the transaction occurred
+        synonyms:
+          - year
+          - sale_year
+      - name: TRANSACTION_MONTH
+        expr: TRANSACTION_MONTH
+        data_type: INTEGER
+        description: Month when the transaction occurred (1-12)
+        synonyms:
+          - month
+          - sale_month
+      - name: TRANSACTION_QUARTER
+        expr: TRANSACTION_QUARTER
+        data_type: INTEGER
+        description: Quarter when the transaction occurred (1-4)
+        synonyms:
+          - quarter
+          - qtr
+    time_dimensions:
+      - name: TRANSACTION_DATE
+        expr: TRANSACTION_DATE
+        data_type: DATE
+        description: Date when the transaction occurred
+        synonyms:
+          - sale_date
+          - deal_date
+          - close_date
+      - name: CUSTOMER_ASSIGNED_DATE
+        expr: CUSTOMER_ASSIGNED_DATE
+        data_type: DATE
+        description: Date when customer was assigned to the sales rep
+        synonyms:
+          - assignment_date
+          - account_assignment
+    facts:
+      - name: QUANTITY
+        expr: QUANTITY
+        data_type: INTEGER
+        description: Number of user seats/licenses sold
+        synonyms:
+          - seats
+          - licenses
+          - users
+      - name: UNIT_PRICE
+        expr: UNIT_PRICE
+        data_type: DECIMAL(10,2)
+        description: Monthly subscription price per seat/license
+        synonyms:
+          - price_per_seat
+          - monthly_price
+          - subscription_rate
+      - name: TOTAL_AMOUNT
+        expr: TOTAL_AMOUNT
+        data_type: DECIMAL(12,2)
+        description: Total transaction amount (quantity × unit price)
+        synonyms:
+          - deal_value
+          - transaction_value
+          - sale_amount
+      - name: COMMISSION_AMOUNT
+        expr: COMMISSION_AMOUNT
+        data_type: DECIMAL(10,2)
+        description: Commission earned on this specific transaction
+        synonyms:
+          - commission
+          - rep_commission
+      - name: DAYS_SINCE_ASSIGNMENT
+        expr: DAYS_SINCE_ASSIGNMENT
+        data_type: INTEGER
+        description: Number of days between customer assignment and transaction
+        synonyms:
+          - sales_cycle_days
+          - time_to_close
+    description: Individual sales transactions with product and customer details
+    synonyms:
+      - transactions
+      - deals
+      - sales_data
+
+# Define relationships between the tables
+relationships:
+  - name: transactions_to_employee_performance
+    leftTable: TRANSACTION_SEMANTIC_VIEW
+    rightTable: SALES_SEMANTIC_VIEW
+    joinType: left_outer
+    relationshipType: many_to_one
+    relationshipColumns:
+      - leftColumn: EMPLOYEE_ID
+        rightColumn: EMPLOYEE_ID
+      - leftColumn: TRANSACTION_YEAR
+        rightColumn: PERIOD_YEAR
+      - leftColumn: TRANSACTION_MONTH
+        rightColumn: PERIOD_MONTH
+
+verified_queries:
+  - name: top_performers_by_region
+    question: "Who are the top 5 sales reps by total sales in each region for 2023?"
+    use_as_onboarding_question: true
+    sql: |
+      SELECT region, full_name, sum(sales_amount) as total_sales,
+             ROW_NUMBER() OVER (PARTITION BY region ORDER BY sum(sales_amount) DESC) as rank
+      FROM sales_semantic_view 
+      WHERE period_year = 2023 AND role = 'Sales Rep'
+      GROUP BY region, full_name
+      QUALIFY rank <= 5
+      ORDER BY region, total_sales DESC
+    verified_by: System
+    verified_at: 1750300000
+
+  - name: quota_performance_by_manager
+    question: "What is the average quota attainment for each manager's team?"
+    use_as_onboarding_question: true
+    sql: |
+      SELECT manager_name, 
+             AVG(quota_attainment) as avg_quota_attainment,
+             COUNT(*) as team_size
+      FROM sales_semantic_view 
+      WHERE period_year = 2023 AND manager_name IS NOT NULL
+      GROUP BY manager_name
+      ORDER BY avg_quota_attainment DESC
+    verified_by: System
+    verified_at: 1750300100
+
+  - name: product_performance_analysis
+    question: "Which Snowflake product categories generate the highest average deal values?"
+    use_as_onboarding_question: true
+    sql: |
+      SELECT product_category, 
+             AVG(total_amount) as avg_deal_value,
+             COUNT(*) as total_deals,
+             SUM(total_amount) as total_revenue
+      FROM transaction_semantic_view 
+      WHERE transaction_year = 2023
+      GROUP BY product_category
+      ORDER BY avg_deal_value DESC
+    verified_by: System
+    verified_at: 1750300200
+
+  - name: sales_cycle_analysis
+    question: "What is the average sales cycle length by deal size category?"
+    use_as_onboarding_question: false
+    sql: |
+      SELECT deal_size_category,
+             AVG(days_since_assignment) as avg_sales_cycle_days,
+             COUNT(*) as deal_count
+      FROM transaction_semantic_view 
+      WHERE days_since_assignment > 0
+      GROUP BY deal_size_category
+      ORDER BY avg_sales_cycle_days DESC
+    verified_by: System
+    verified_at: 1750300300
+
+custom_instructions: |-
+  ### SALES PERFORMANCE ANALYSIS TOOL ###
+
+  # 1. PURPOSE
+  # This tool provides access to Snowflake sales organization data including employee hierarchy, 
+  # performance metrics, compensation, and individual transaction details.
+
+  # 2. TWO MAIN DATA SOURCES
+  # - SALES_SEMANTIC_VIEW: Monthly performance aggregates with hierarchy
+  # - TRANSACTION_SEMANTIC_VIEW: Individual deal-level transaction data
+
+  # 3. KEY RELATIONSHIPS
+  # Both tables can be joined on EMPLOYEE_ID and time periods (YEAR/MONTH) to analyze:
+  # - How individual transactions roll up to monthly performance
+  # - Manager performance vs direct report transactions
+  # - Product mix impact on quota attainment
+
+  # 4. COMMON ANALYSIS PATTERNS
+  # - Manager rollups: Use hierarchy fields (MANAGER_NAME, ROLE_CATEGORY)
+  # - Quota analysis: Use QUOTA_ATTAINMENT, QUOTA_PERFORMANCE_BAND
+  # - Product analysis: Use PRODUCT_CATEGORY from transaction view
+  # - Compensation: Use COMMISSION_EARNED, TOTAL_COMPENSATION
+  # - Territory analysis: Use TERRITORY, REGION dimensions
+
+  # 5. SNOWFLAKE PRODUCT CATEGORIES
+  # The data includes realistic Snowflake products:
+  # Data Warehouse, Cortex AI, Analytics Workbench, Data Engineering, 
+  # Data Governance, Data Sharing, Developer Tools, Data Lake, Marketplace

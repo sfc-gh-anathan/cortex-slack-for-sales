@@ -15,6 +15,6 @@ https://github.com/sfc-gh-anathan/saks-cortex-agents-with-slack
 -- instructions for getting set up in slack
 https://tools.slack.dev/bolt-python/getting-started/ 
 
-## Saks Hands-on-Lab Instructions
+## Sales Demo Hands-on-Lab Instructions
 
 -- See build_instructions.txt
