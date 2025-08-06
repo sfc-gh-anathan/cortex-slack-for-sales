@@ -1,0 +1,232 @@
+name: retail_sales_data
+tables:
+  - name: RETAIL_SALES_DATASET
+    base_table:
+      database: SLACK_DEMO
+      schema: SLACK_SCHEMA
+      table: RETAIL_SALES_DATASET
+    dimensions:
+      - name: CUSTOMER_ID
+        expr: CUSTOMER_ID
+        data_type: VARCHAR(16777216)
+        sample_values:
+          - CUST001
+          - CUST003
+          - CUST013
+        description: Unique identifier for each customer in the retail sales dataset.
+        synonyms:
+          - client_id
+          - customer_number
+          - client_number
+          - account_id
+          - account_number
+          - user_id
+          - patron_id
+          - shopper_id
+      - name: GENDER
+        expr: GENDER
+        data_type: VARCHAR(16777216)
+        sample_values:
+          - Male
+          - Female
+        description: The gender of the customer who made the purchase.
+        synonyms:
+          - sex
+          - male_female
+          - demographic
+          - sex_type
+          - male_or_female
+          - gender_type
+      - name: PRODUCT_CATEGORY
+        expr: PRODUCT_CATEGORY
+        data_type: VARCHAR(16777216)
+        sample_values:
+          - Beauty
+          - Clothing
+          - Electronics
+        description: The category of the product being sold, such as Beauty, Clothing, or Electronics, which helps to group similar products together for analysis and reporting purposes. Use this for questions about types of products or product groupings.
+        synonyms:
+          - product_type
+          - item_category
+          - product_group
+          - category_name
+          - product_classification
+          - item_type
+          - product_segment
+    time_dimensions:
+      - name: TRANSACTION_DATE
+        expr: DATE
+        data_type: DATE
+        sample_values:
+          - '2023-11-24'
+          - '2023-02-27'
+          - '2024-01-13'
+        description: Date of a specific sales transaction. Contains historical data ONLY for the years 2023 and 2024. Use this for filtering sales by specific past dates, weeks, or months, or for ordering results chronologically. DO NOT use for future dates or trend analysis.
+        synonyms:
+          - day
+          - calendar_date
+          - transaction_date
+          - date_of_purchase
+          - purchase_date
+          - sales_date
+          - historical_date
+    facts:
+      - name: TRANSACTION_ID
+        expr: TRANSACTION_ID
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '1'
+          - '2'
+          - '3'
+        description: Unique identifier for each sales transaction.
+        synonyms:
+          - order_id
+          - transaction_number
+          - purchase_id
+          - sale_id
+          - invoice_number
+          - record_id
+      - name: AGE
+        expr: AGE
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '34'
+          - '26'
+          - '50'
+        description: The age of the customer who made a purchase. Use this for demographic analysis.
+        synonyms:
+          - years_old
+          - years_of_age
+          - age_in_years
+          - years_alive
+          - birth_age
+          - person_age
+      - name: QUANTITY
+        expr: QUANTITY
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '3'
+          - '2'
+          - '1'
+        description: The quantity of items sold in a single transaction. Use this for counting items sold or calculating average quantities.
+        synonyms:
+          - amount
+          - count
+          - volume
+          - number_of_items
+          - total_items
+          - item_count
+          - quantity_ordered
+          - units_sold
+      - name: PRICE_PER_UNIT
+        expr: PRICE_PER_UNIT
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '50'
+          - '500'
+          - '30'
+        description: The price of a single unit of a product. Use this for pricing analysis.
+        synonyms:
+          - unit_price
+          - cost_per_item
+          - price_per_item
+          - item_price
+          - unit_cost
+          - cost_per_unit
+      - name: TOTAL_AMOUNT
+        expr: TOTAL_AMOUNT
+        data_type: NUMBER(38,0)
+        sample_values:
+          - '150'
+          - '1000'
+          - '30'
+        description: The total sales amount for each transaction. This is a key metric for revenue and sales performance.
+        synonyms:
+          - total_cost
+          - grand_total
+          - total_price
+          - total_value
+          - overall_amount
+          - total_sum
+          - total_payment
+          - total_revenue
+    description: This table stores retail sales data, capturing individual transactions with details on customer demographics, product information, and sales amounts.
+    synonyms:
+      - retail_sales
+      - sales_data
+      - transaction_log
+      - customer_purchases
+      - sales_dataset
+      - retail_transactions
+      - customer_sales
+      - transaction_history
+verified_queries:
+  - name: shopping by gender pie chart
+    question: what is the percentage of shoppers by gender?
+    use_as_onboarding_question: false
+    sql: SELECT gender, COUNT(DISTINCT customer_id) / NULLIF(NULLIF((SELECT COUNT(DISTINCT customer_id) FROM retail_sales_dataset), 0), 0) AS pct_of_total FROM retail_sales_dataset GROUP BY gender ORDER BY pct_of_total DESC NULLS LAST
+    verified_by: Adam Nathan
+    verified_at: 1749853305
+  - name: total revenue
+    question: '"What was the total revenue in 2023?"'
+    use_as_onboarding_question: false
+    sql: SELECT SUM(total_amount) AS total_revenue FROM retail_sales_dataset WHERE DATE_PART('year', transaction_date) = 2023
+    verified_by: Adam Nathan
+    verified_at: 1750270022
+  - name: distinct customer purchases
+    question: How many unique customers made a purchase in 2023?
+    use_as_onboarding_question: false
+    sql: SELECT COUNT(DISTINCT customer_id) AS unique_customers FROM retail_sales_dataset WHERE DATE_PART('year', transaction_date) = 2023
+    verified_by: Adam Nathan
+    verified_at: 1750270061
+  - name: sales by product category
+    question: What is the total sales amount for each product category?
+    use_as_onboarding_question: false
+    sql: SELECT product_category, SUM(total_amount) AS total_sales FROM retail_sales_dataset WHERE DATE_PART('year', transaction_date) = 2023 GROUP BY product_category ORDER BY total_sales DESC NULLS LAST
+    verified_by: Adam Nathan
+    verified_at: 1750270114
+  - name: order highest total sales by month
+    question: Which month in 2023 had the highest total sales?
+    use_as_onboarding_question: false
+    sql: SELECT DATE_TRUNC('MONTH', transaction_date) AS month, SUM(total_amount) AS monthly_sales FROM retail_sales_dataset WHERE DATE_PART('year', transaction_date) = 2023 GROUP BY month ORDER BY monthly_sales DESC NULLS LAST
+    verified_by: Adam Nathan
+    verified_at: 1750270227
+  - name: two dimension one fact query
+    question: For each product category, what was the total quantity sold to male vs female customers?
+    use_as_onboarding_question: false
+    sql: SELECT product_category, gender, SUM(quantity) AS total_quantity FROM retail_sales_dataset WHERE DATE_PART('year', transaction_date) = 2023 GROUP BY product_category, gender ORDER BY product_category, gender DESC NULLS LAST
+    verified_by: Adam Nathan
+    verified_at: 1750270285
+  - name: scatter of age x total sales
+    question: Plot the relationship between customer age and their total spending per transaction
+    use_as_onboarding_question: false
+    sql: SELECT age, total_amount FROM retail_sales_dataset WHERE DATE_PART('year', transaction_date) = 2023 ORDER BY age DESC NULLS LAST
+    verified_by: Adam Nathan
+    verified_at: 1750270466
+custom_instructions: |-
+  ### TOOL SCOPE AND RULES ###
+
+  # 1. PURPOSE OF THIS TOOL
+  # This tool provides access to the RETAIL_SALES_DATASET. It ONLY answers quantitative questions about HISTORICAL sales data by running SQL queries. The data exists ONLY for dates up to and including the year 2023.
+
+  # 2. WHEN TO USE THIS TOOL
+  # Use this tool ONLY for specific, historical, mathematical queries about what happened in the past.
+  # - GOOD Example: "What were the total sales for Electronics in 2023?"
+  # - GOOD Example: "Show the number of units sold by gender last year."
+
+  # 3. WHEN YOU MUST NOT USE THIS TOOL
+  # For any of the following topics, you MUST use the other available tool (the unstructured document search). DO NOT use this SQL tool.
+  # - Any question about a future year (2024, 2025, etc.).
+  # - Any question containing the words: "trend", "forecast", "prediction", "outlook", "why", "sentiment", "insight", "analyze".
+  # - Any qualitative question that cannot be answered with a number.
+  # - BAD Example: "What are the key trends in apparel for 2025?" (This requires the search tool).
+  # - BAD Example: "Why were sales low in March?" (This requires the search tool).
+
+  ### CHARTING AND OUTPUT FORMAT ###
+  # When you answer a question using this tool, ALWAYS format the SQL output to contain the minimum columns necessary to build one of the following chart types.
+
+  # - Bar Chart: Column 1 String/Category/Date (X-axis), Column 2 Numeric (Y-axis)
+  # - Pie Chart: Column 1 String/Category (Labels), Column 2 Numeric (Values)
+  # - Simple Line Chart: Column 1 Date/Time (X-axis), Column 2 Numeric (Y-axis)
+  # - Scatter Plot: Column 1 Numeric (X-axis), Column 2 Numeric (Y-axis)
+  # - Multi-Line Chart: Column 1 Date/Time (X-axis), Column 2 String/Category (Group/Line), Column 3 Numeric (Y-axis)
