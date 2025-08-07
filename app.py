@@ -823,6 +823,8 @@ def init():
             private_key_file=RSA_PRIVATE_KEY_PATH,
             account=ACCOUNT,
             warehouse=WAREHOUSE,
+            database=DATABASE,
+            schema=SCHEMA,
             role=ROLE,
             host=HOST
         )

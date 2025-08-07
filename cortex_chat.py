@@ -3,7 +3,7 @@ import json
 import generate_jwt
 from generate_jwt import JWTGenerator
 
-DEBUG = False
+DEBUG = True
 
 class CortexChat:
     def __init__(self, 
@@ -49,13 +49,15 @@ class CortexChat:
                 {
                     "tool_spec": {
                         "type": "cortex_search",
-                        "name": "info_search"
+                        "name": "info_search",
+                        "description": "Search through PDF documents and reports for general information, industry insights, and non-sales-data questions"
                     }
                 },
                 {
                     "tool_spec": {
                         "type": "cortex_analyst_text_to_sql",
-                        "name": "supply_chain"
+                        "name": "sales_analysis",
+                        "description": "Analyze sales data, performance metrics, and generate SQL queries for specific sales-related data analysis"
                     }
                 }
             ],
@@ -66,7 +68,7 @@ class CortexChat:
                     "title_column": "title",
                     "id_column": "relative_path",
                 },
-                "supply_chain": {
+                "sales_analysis": {
                     "semantic_model_file": self.semantic_model
                 }
             },
