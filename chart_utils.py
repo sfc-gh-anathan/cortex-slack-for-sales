@@ -104,12 +104,44 @@ def select_and_plot_chart(df, app_client):
                 error_info = f"{type(e).__name__}: {e}"
                 print(f"Warning: Could not generate Bar Chart: {error_info}")
     
+    # 6. Smart Bar Chart (for multi-column data with categorical and numeric columns)
+    # Find the best categorical and numeric columns for charting
+    if len(df.columns) >= 2:
+        categorical_cols = []
+        numeric_cols = []
+        
+        for i, col in enumerate(df.columns):
+            if pd.api.types.is_numeric_dtype(df.iloc[:, i]):
+                numeric_cols.append((i, col))
+            elif pd.api.types.is_string_dtype(df.iloc[:, i]) or pd.api.types.is_categorical_dtype(df.iloc[:, i]):
+                # Check if reasonable number of categories
+                if df.iloc[:, i].nunique() <= 20:
+                    categorical_cols.append((i, col))
+        
+        if categorical_cols and numeric_cols:
+            # Use first categorical and first numeric column
+            cat_idx, cat_col = categorical_cols[0]
+            num_idx, num_col = numeric_cols[0]
+            
+            # Create a simplified DataFrame for charting
+            chart_df = df[[cat_col, num_col]].copy()
+            
+            try:
+                chart_img_url = plot_bar_chart(chart_df, app_client)
+                print(f"Generated Smart Bar Chart with {cat_col} vs {num_col}.")
+                return chart_img_url
+            except Exception as e:
+                error_info = f"{type(e).__name__}: {e}"
+                print(f"Warning: Could not generate Smart Bar Chart: {error_info}")
+    
     print("Data not suitable for any recognized chart type.")
     return None
 
 def plot_pie_chart(df, app_client):
     """Generates a pie chart for categorical vs. numeric data."""
-    plt.figure(figsize=(10, 7), facecolor=BACKGROUND_COLOR)
+    plt.clf()
+    plt.close('all')
+    plt.figure(figsize=(12, 8), facecolor=BACKGROUND_COLOR)
 
     if not pd.api.types.is_numeric_dtype(df.iloc[:, 1]):
         raise TypeError(f"Second column '{df.columns[1]}' is not numeric for pie chart values.")
@@ -143,7 +175,9 @@ def plot_pie_chart(df, app_client):
 
 def plot_bar_chart(df, app_client):
     """Generates a bar chart for categorical/time vs. numeric data."""
-    plt.figure(figsize=(12, 7), facecolor=BACKGROUND_COLOR)
+    plt.clf()
+    plt.close('all')
+    plt.figure(figsize=(12, 8), facecolor=BACKGROUND_COLOR)
     
     x_col = df.columns[0]
     y_col = df.columns[1]
@@ -189,7 +223,9 @@ def plot_bar_chart(df, app_client):
 
 def plot_line_chart(df, x_col, y_col, app_client):
     """Generates a simple line chart for time-series data (Date vs. Numeric)."""
-    plt.figure(figsize=(12, 7), facecolor=BACKGROUND_COLOR)
+    plt.clf()
+    plt.close('all')
+    plt.figure(figsize=(12, 8), facecolor=BACKGROUND_COLOR)
 
     if not pd.api.types.is_datetime64_any_dtype(df[x_col]):
         raise TypeError(f"First column '{x_col}' is not a datetime for line chart.")
@@ -227,7 +263,9 @@ def plot_line_chart(df, x_col, y_col, app_client):
 
 def plot_multi_line_chart(df, x_col, y_col, group_col, app_client):
     """Generates a multi-line chart tracking multiple series over time."""
-    plt.figure(figsize=(14, 8), facecolor=BACKGROUND_COLOR)
+    plt.clf()
+    plt.close('all')
+    plt.figure(figsize=(12, 8), facecolor=BACKGROUND_COLOR)
 
     if not pd.api.types.is_datetime64_any_dtype(df[x_col]):
         raise TypeError(f"X-axis column '{x_col}' is not datetime for multi-line chart.")
@@ -281,7 +319,9 @@ def plot_multi_line_chart(df, x_col, y_col, group_col, app_client):
 
 def plot_scatter_chart(df, x_col, y_col, app_client, group_col=None):
     """Generates a scatter plot to show relationships between two numeric columns, with optional grouping."""
-    plt.figure(figsize=(14, 8), facecolor=BACKGROUND_COLOR)
+    plt.clf()
+    plt.close('all')
+    plt.figure(figsize=(12, 8), facecolor=BACKGROUND_COLOR)
     
     ax = plt.gca()
     # Remove top and right bounding box (spines), keep bottom/left but make them subtle

@@ -16,6 +16,16 @@ import io
 from chart_utils import select_and_plot_chart, upload_chart_to_slack
 # Import experimental intelligent charting
 from chart_utils_experimental import create_intelligent_chart
+# Import data filter modal functionality
+from data_filter_modal import (
+    get_filter_data_button_element, 
+    create_filter_modal, 
+    apply_pandas_filters, 
+    extract_filter_values_from_modal,
+    create_filtered_result_message,
+    FILTER_DATA_BUTTON_ACTION_ID,
+    FILTER_MODAL_CALLBACK_ID
+)
 
 
 load_dotenv()
@@ -48,11 +58,12 @@ DEBUG = True # Set to True for more verbose console output to see debug prints
 # --- Initializes Slack App ---
 app = App(token=SLACK_BOT_TOKEN)
 
-# --- Global In-Memory Cache for SQL Queries ---
+# --- Global In-Memory Cache for SQL Queries and DataFrames ---
 # WARNING: In a production environment, this should be replaced with a more robust,
 # persistent, and thread-safe caching mechanism (e.g., Redis, database)
 # to handle multiple concurrent users and bot restarts.
 global_sql_cache = {}
+global_dataframe_cache = {}  # Cache for DataFrames used in filtering
 SQL_SHOW_BUTTON_ACTION_ID = "show_full_sql_query_button"
 REFINE_QUERY_BUTTON_ACTION_ID = "refine_query_button"
 RENDER_CHART_BUTTON_ACTION_ID = "render_chart_button"
@@ -290,6 +301,7 @@ def get_action_buttons_block(include_show_sql=True, data_size=None): # MODIFIED:
         elements.append(get_show_sql_query_button_element())
 
     elements.extend([
+        get_filter_data_button_element(),
         get_refine_query_button_element(),
         get_render_chart_button_element(),
         get_download_data_button_element()
@@ -301,6 +313,35 @@ def get_action_buttons_block(include_show_sql=True, data_size=None): # MODIFIED:
     }
 
 # --- Response Display and Charting Logic ---
+
+def _format_dataframe_for_display(df):
+    """
+    Format DataFrame columns for better display with commas and currency symbols
+    """
+    formatted_df = df.copy()
+    
+    for col in formatted_df.columns:
+        if pd.api.types.is_numeric_dtype(formatted_df[col]):
+            # Check if this looks like a currency/sales column
+            is_currency = any(keyword in col.upper() for keyword in 
+                            ['SALES', 'AMOUNT', 'REVENUE', 'TOTAL', 'COST', 'PRICE', 'VALUE'])
+            
+            # Format numeric columns
+            if is_currency:
+                # Currency formatting with commas
+                formatted_df[col] = formatted_df[col].apply(
+                    lambda x: f"${x:,.0f}" if pd.notna(x) else ""
+                )
+            else:
+                # Regular number formatting with commas for large numbers
+                formatted_df[col] = formatted_df[col].apply(
+                    lambda x: f"{x:,.0f}" if pd.notna(x) and abs(x) >= 1000 else 
+                             (f"{x:.2f}" if pd.notna(x) and x != int(x) else 
+                              f"{int(x)}" if pd.notna(x) else "")
+                )
+    
+    return formatted_df
+
 
 def _get_safe_table_text(df, truncated_message="", requested_rows=None):
     """
@@ -314,12 +355,16 @@ def _get_safe_table_text(df, truncated_message="", requested_rows=None):
         max_rows = min(len(df), 10)
     
     # First, try the exact requested number of rows
-    display_df = df.head(max_rows)
+    display_df = df.head(max_rows).copy()
+    
+    # Format numeric columns with commas and currency symbols
+    display_df = _format_dataframe_for_display(display_df)
+    
     base_table_text = display_df.to_string(index=False)
     
     # Calculate space needed for row counter message
     if max_rows < len(df):
-        row_message = f"\n\n(Showing {max_rows} of {len(df)} rows. Use dropdown to see more.)"
+        row_message = f"\n\n(Showing {max_rows:,} of {len(df):,} rows. Use dropdown to see more.)"
     else:
         row_message = ""
     
@@ -333,9 +378,10 @@ def _get_safe_table_text(df, truncated_message="", requested_rows=None):
     if requested_rows and requested_rows > 25:
         # For large requests that don't fit, try half the requested amount
         fallback_rows = max(10, requested_rows // 2)
-        display_df = df.head(fallback_rows)
+        display_df = df.head(fallback_rows).copy()
+        display_df = _format_dataframe_for_display(display_df)
         base_table_text = display_df.to_string(index=False)
-        row_message = f"\n\n(Showing {fallback_rows} of {len(df)} rows - table too wide for {requested_rows} rows.)"
+        row_message = f"\n\n(Showing {fallback_rows:,} of {len(df):,} rows - table too wide for {requested_rows:,} rows.)"
         full_text = base_table_text + truncated_message + row_message
         
         if len(full_text) <= 2800:
@@ -344,9 +390,10 @@ def _get_safe_table_text(df, truncated_message="", requested_rows=None):
     # Last resort: reduce to a safe minimum
     safe_rows = 10
     while safe_rows > 3:
-        display_df = df.head(safe_rows)
+        display_df = df.head(safe_rows).copy()
+        display_df = _format_dataframe_for_display(display_df)
         base_table_text = display_df.to_string(index=False)
-        row_message = f"\n\n(Showing {safe_rows} of {len(df)} rows - table too wide for full display.)"
+        row_message = f"\n\n(Showing {safe_rows:,} of {len(df):,} rows - table too wide for full display.)"
         full_text = base_table_text + truncated_message + row_message
         
         if len(full_text) <= 2800:
@@ -355,7 +402,9 @@ def _get_safe_table_text(df, truncated_message="", requested_rows=None):
         safe_rows -= 2
     
     # If even 3 rows is too long (very wide table), truncate the text
-    table_text = df.head(3).to_string(index=False)
+    display_df = df.head(3).copy()
+    display_df = _format_dataframe_for_display(display_df)
+    table_text = display_df.to_string(index=False)
     if len(table_text) > 2700:
         table_text = table_text[:2700] + "..."
     table_text += f"\n\n(Table truncated for Slack display. Use dropdown to adjust.)"
@@ -505,8 +554,9 @@ def display_agent_response(content, say, app_client, original_body):
             )
             message_ts = post_response['ts']
 
-            # Store the full SQL query in the global cache, keyed by message_ts
+            # Store the full SQL query and DataFrame in the global cache, keyed by message_ts
             global_sql_cache[message_ts] = sql
+            global_dataframe_cache[message_ts] = df
 
         except Exception as e:
             print(f"Error posting initial message to Slack: {e}")
@@ -831,143 +881,43 @@ def handle_render_chart_button_click(ack, body, client):
         return
 
     try:
-        # MODIFIED: Used rich_text blocks for reliable bolding and emoji
-        client.chat_postMessage(
-            channel=channel_id,
-            blocks=[
-                {
-                    "type": "rich_text",
-                    "elements": [
-                        {
-                            "type": "rich_text_section",
-                            "elements": [
-                                {
-                                    "type": "text",
-                                    "text": "📈 ", # MODIFIED: Unicode emoji
-                                },
-                                {
-                                    "type": "text",
-                                    "text": "Generating your chart...",
-                                    "style": {
-                                        "bold": True
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ],
-            thread_ts=message_ts
-        )
-
-        # Re-execute the SQL query to get the data for charting
+        # Get DataFrame - re-execute SQL to get fresh data every time to avoid size issues
         df = pd.read_sql(sql_query, CONN)
-
+        
         if DEBUG:
-            print("DataFrame for charting info:")
-            df.info()
-            print(df.head())
+            print(f"Chart: Fresh DataFrame shape: {df.shape}")
+            print(f"Chart: DataFrame columns: {list(df.columns)}")
 
-        # --- Robust Type Conversion for Plotting (similar to display_agent_response) ---
-        if len(df.columns) >= 2:
-            try:
-                if pd.api.types.is_object_dtype(df.iloc[:, 0]) or pd.api.types.is_string_dtype(df.iloc[:, 0]):
-                    temp_col = pd.to_datetime(df.iloc[:, 0], errors='coerce')
-                    if not temp_col.isna().all():
-                        df[df.columns[0]] = temp_col
-                        if DEBUG:
-                            print(f"Chart: Converted column '{df.columns[0]}' to datetime.")
-            except Exception as e:
-                if DEBUG:
-                    print(f"Chart: Could not convert column '{df.columns[0]}' to datetime: {e}")
-
-            for i in range(len(df.columns)):
-                try:
-                    if pd.api.types.is_object_dtype(df.iloc[:, i]) or pd.api.types.is_string_dtype(df.iloc[:, i]):
-                        temp_col = pd.to_numeric(df.iloc[:, i], errors='coerce')
-                        if not temp_col.isna().all() and (temp_col.notna().sum() / len(temp_col) > 0.5):
-                            df[df.columns[i]] = temp_col
-                            if DEBUG:
-                                print(f"Chart: Converted column '{df.columns[i]}' to numeric.")
-                    elif pd.api.types.is_numeric_dtype(df.iloc[:, i]):
-                        df[df.columns[i]] = df[df.columns[i]].astype(float)
-                except Exception as e:
-                    if DEBUG:
-                        print(f"Chart: Could not convert column '{df.columns[i]}' to numeric: {e}")
-
-        for col in df.columns:
-            if pd.api.types.is_numeric_dtype(df[col]):
-                if df[col].isnull().any():
-                    df.dropna(subset=[col], inplace=True)
-                    if DEBUG:
-                        print(f"Chart: Dropped rows with NaN in numeric column '{col}'.")
-
-
-        # Try intelligent chart generation first, fallback to original method
-        try:
-            # Use intelligent chart generation with Cortex
-            fig, metadata = create_intelligent_chart(df, last_user_prompt_global, CONN)
-            
-            # Convert figure to image and upload to Slack
-            img_buffer = io.BytesIO()
-            fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-            img_buffer.seek(0)
-            
-            # Upload to Slack
-            upload_response = client.files_upload_v2(
+        # Simple chart generation - use fallback method only for consistency
+        chart_img_url = select_and_plot_chart(df, client)
+        
+        if chart_img_url:
+            # Post simple message with just chart - no complex blocks, no thread_ts inheritance
+            client.chat_postMessage(
                 channel=channel_id,
-                file=img_buffer.getvalue(),
-                filename=f"intelligent_chart_{int(time.time())}.png",
-                title="AI-Generated Chart",
-                thread_ts=message_ts,
-                initial_comment="Here's an intelligent chart generated by Cortex AI based on your data and question!"
+                text="📊 Chart:",
+                attachments=[
+                    {
+                        "fallback": "Chart generated",
+                        "image_url": chart_img_url,
+                        "color": "good"
+                    }
+                ]
             )
-            
             if DEBUG:
-                print(f"Intelligent chart metadata: {metadata}")
-                print(f"Chart upload response: {upload_response.get('ok', False)}")
-                
-        except Exception as e:
-            if DEBUG:
-                print(f"Intelligent chart generation failed: {e}")
-                print(f"Error type: {type(e).__name__}")
-                print(f"Error details: {str(e)}")
-                import traceback
-                print(f"Full traceback: {traceback.format_exc()}")
-                print("Falling back to original chart method...")
-            
-            # Fallback to original charting method
-            chart_img_url = select_and_plot_chart(df, client)
-            if chart_img_url:
-                client.chat_postMessage(
-                    channel=channel_id,
-                    blocks=[
-                        {
-                            "type": "image",
-                            "title": {
-                                "type": "plain_text",
-                                "text": "Generated Chart"
-                            },
-                            "image_url": chart_img_url,
-                            "alt_text": "Generated Chart"
-                        }
-                    ],
-                    thread_ts=message_ts
-                )
-            else:
-                client.chat_postMessage(
-                    channel=channel_id,
-                    text="I couldn't generate a suitable chart for the data returned by the query. Please check the data format.",
-                    thread_ts=message_ts
-                )
+                print("Chart posted successfully")
+        else:
+            client.chat_postMessage(
+                channel=channel_id,
+                text="❌ Could not generate chart for this data."
+            )
 
     except Exception as e:
         error_info = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
         print(f"ERROR rendering chart: {error_info}")
         client.chat_postMessage(
             channel=channel_id,
-            text=f"An error occurred while trying to render the chart: {e}",
-            thread_ts=message_ts
+            text=f"❌ Chart generation failed: {str(e)}"
         )
 
 # Action handler for "Download Data" button
@@ -1070,6 +1020,167 @@ def handle_download_data_button_click(ack, body, client):
             text=f"An error occurred while trying to download the data: {e}",
             thread_ts=message_ts
         )
+
+
+# Action handler for "Clear All Filters" button in modal
+@app.action("clear_all_filters_button")
+def handle_clear_all_filters_button_click(ack, body, client):
+    ack()
+    
+    # Get the original message timestamp and channel from the modal's private_metadata
+    try:
+        private_metadata = body['view']['private_metadata']
+        if "|" in private_metadata:
+            message_ts, channel_id = private_metadata.split("|", 1)
+        else:
+            message_ts = private_metadata
+            channel_id = body['channel']['id']  # fallback
+        
+        # Get the original DataFrame from cache
+        df = global_dataframe_cache.get(message_ts)
+        if df is None:
+            client.chat_postMessage(
+                channel=channel_id,
+                text="Sorry, I couldn't retrieve the original data. The query might have expired or been cleared.",
+                thread_ts=message_ts
+            )
+            return
+        
+        # Create filtered result message with original (unfiltered) data
+        result_blocks = create_filtered_result_message(df, [], len(df))  # Empty filters list means "no filters applied"
+        
+        # Post the original results as a new message in thread
+        response = client.chat_postMessage(
+            channel=channel_id,
+            text="Here are your original results (all filters cleared):",
+            blocks=result_blocks,
+            thread_ts=message_ts
+        )
+        
+        # Cache the original DataFrame with the new message timestamp
+        new_message_ts = response['ts']
+        global_dataframe_cache[new_message_ts] = df.copy()
+        
+        # Also cache the original SQL query so other buttons work
+        original_sql = global_sql_cache.get(message_ts)
+        if original_sql:
+            global_sql_cache[new_message_ts] = original_sql
+        
+        if DEBUG:
+            print(f"Cleared all filters, cached original DataFrame with new message_ts: {new_message_ts}")
+            
+    except Exception as e:
+        print(f"Error handling clear all filters: {e}")
+        client.chat_postMessage(
+            channel=body['channel']['id'],
+            text=f"An error occurred while clearing filters: {e}",
+            ephemeral=True
+        )
+
+# Action handler for "Filter Query" button
+@app.action(FILTER_DATA_BUTTON_ACTION_ID)
+def handle_filter_data_button_click(ack, body, client):
+    ack()
+    message_ts = body['message']['ts']
+    channel_id = body['channel']['id']
+    
+    # Get the DataFrame from cache
+    df = global_dataframe_cache.get(message_ts)
+    
+    if df is None:
+        client.chat_postMessage(
+            channel=channel_id,
+            text="Sorry, I couldn't retrieve the data for filtering. The query might have expired or been cleared.",
+            thread_ts=message_ts
+        )
+        return
+    
+    try:
+        # Create and open the filter modal
+        modal = create_filter_modal(df, message_ts, channel_id)
+        client.views_open(
+            trigger_id=body["trigger_id"],
+            view=modal
+        )
+    except Exception as e:
+        print(f"Error opening filter modal: {e}")
+        client.chat_postMessage(
+            channel=channel_id,
+            text=f"An error occurred while opening the filter dialog: {e}",
+            thread_ts=message_ts
+        )
+
+
+# Modal submission handler for filter modal
+@app.view(FILTER_MODAL_CALLBACK_ID)
+def handle_filter_modal_submission(ack, body, client, view):
+    ack()
+    
+    try:
+        # Get the original message timestamp and channel from private_metadata
+        private_metadata = view.get("private_metadata", "")
+        if not private_metadata:
+            print("Error: No private_metadata found in modal")
+            return
+        
+        # Parse message_ts and channel_id from private_metadata
+        if "|" in private_metadata:
+            message_ts, channel_id = private_metadata.split("|", 1)
+        else:
+            message_ts = private_metadata
+            channel_id = None  # Fallback - will need to handle this case
+        
+        # Get the original DataFrame from cache
+        df = global_dataframe_cache.get(message_ts)
+        if df is None:
+            print(f"Error: No DataFrame found in cache for message_ts: {message_ts}")
+            return
+        
+        # Extract filter values from modal
+        filter_values = extract_filter_values_from_modal(view["state"]["values"])
+        
+        if DEBUG:
+            print(f"Filter values extracted: {filter_values}")
+        
+        # Apply pandas filters
+        filtered_df, applied_filters = apply_pandas_filters(df, filter_values)
+        
+        if DEBUG:
+            print(f"Original DataFrame shape: {df.shape}")
+            print(f"Filtered DataFrame shape: {filtered_df.shape}")
+            print(f"Applied filters: {applied_filters}")
+        
+        # Create filtered result message
+        result_blocks = create_filtered_result_message(filtered_df, applied_filters, len(df))
+        
+        # Post the filtered results as a new message in thread
+        if channel_id:
+            response = client.chat_postMessage(
+                channel=channel_id,
+                text="Here are your filtered results:",
+                blocks=result_blocks,
+                thread_ts=message_ts
+            )
+            
+            # Cache the filtered DataFrame and original SQL with the new message timestamp
+            new_message_ts = response['ts']
+            global_dataframe_cache[new_message_ts] = filtered_df
+            
+            # Also cache the original SQL query so other buttons (like Show SQL) work
+            original_sql = global_sql_cache.get(message_ts)
+            if original_sql:
+                global_sql_cache[new_message_ts] = original_sql
+            
+            if DEBUG:
+                print(f"Cached filtered DataFrame with new message_ts: {new_message_ts}")
+                print(f"Also cached original SQL query for new message")
+        else:
+            print("Error: No channel_id available to post filtered results")
+        
+    except Exception as e:
+        print(f"Error processing filter modal submission: {e}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
 
 
 # --- Initialization and App Start ---

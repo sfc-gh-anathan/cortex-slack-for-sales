@@ -343,7 +343,11 @@ fig = plt.gcf()
         """Create chart using safe, predefined functions"""
         
         try:
-            fig, ax = plt.subplots(figsize=(12, 10))  # Increased height for description
+            # Clear any existing matplotlib state to prevent size issues
+            plt.clf()
+            plt.close('all')
+            
+            fig, ax = plt.subplots(figsize=(12, 8))  # Optimized ratio to reduce bottom space
             
             chart_type = recommendation['chart_type']
             x_col = recommendation['x_axis']
@@ -355,8 +359,25 @@ fig = plt.gcf()
             df_plot = df.copy()
             
             if chart_type in ['bar', 'column'] and x_col and y_col:
-                # Bar chart with tooltips
-                bars = sns.barplot(data=df_plot, x=x_col, y=y_col, ax=ax)
+                # Bar chart with grouping (similar logic to line charts)
+                categorical_cols = df_plot.select_dtypes(include=['object', 'category']).columns.tolist()
+                grouping_col = None
+                
+                # Look for good grouping columns (exclude x_col and y_col)
+                for col in categorical_cols:
+                    if col != x_col and col != y_col and df_plot[col].nunique() <= 10:  # Max 10 groups
+                        grouping_col = col
+                        break
+                
+                if grouping_col:
+                    # Grouped bar chart
+                    bars = sns.barplot(data=df_plot, x=x_col, y=y_col, hue=grouping_col, ax=ax)
+                    ax.legend(title=grouping_col, bbox_to_anchor=(1.05, 1), loc='upper left')
+                    plt.subplots_adjust(right=0.75)  # Make room for legend
+                else:
+                    # Single series bar chart
+                    bars = sns.barplot(data=df_plot, x=x_col, y=y_col, ax=ax)
+                
                 ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
                 
                 # Add value labels on bars (simple tooltips)
@@ -475,8 +496,8 @@ fig = plt.gcf()
             data_info = f"Data points: {len(df_plot):,}"
             fig.text(0.9, 0.02, data_info, fontsize=9, ha='right', va='bottom', alpha=0.7)
             
-            plt.tight_layout()
-            plt.subplots_adjust(bottom=0.15)  # Make room for description
+            plt.tight_layout(pad=1.0)
+            plt.subplots_adjust(bottom=0.10)  # Reduced bottom padding
             
             # Adjust layout if we have a legend outside the plot
             if hasattr(ax, 'legend_') and ax.legend_:
@@ -577,6 +598,10 @@ fig = plt.gcf()
     
     def _create_fallback_chart(self, df: pd.DataFrame) -> plt.Figure:
         """Create simple fallback chart when everything else fails"""
+        
+        # Clear any existing matplotlib state to prevent size issues
+        plt.clf()
+        plt.close('all')
         
         fig, ax = plt.subplots(figsize=(12, 8))
         
