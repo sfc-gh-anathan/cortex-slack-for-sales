@@ -38,6 +38,15 @@ tables:
           - employee_name
           - name
           - rep_name
+      - name: EMAIL
+        expr: EMAIL
+        data_type: VARCHAR(100)
+        description: Email address of the sales employee
+        synonyms:
+          - email_address
+          - contact_email
+          - work_email
+          - employee_email
       - name: ROLE
         expr: ROLE
         data_type: VARCHAR(30)
@@ -50,9 +59,9 @@ tables:
           - 'Sales Rep' (Individual Sales Representative)
           Note: When referring to "managers" or "management roles", use 'Sales Manager', 'Regional Manager', 'VP Sales', or 'CRO'.
         synonyms:
-          - title
+          - title 
           - position
-          - job_title
+          - job_title 
           - sales_role
           - job_title
       - name: TERRITORY
@@ -78,6 +87,49 @@ tables:
           - supervisor
           - boss
           - manager
+      - name: ACCESS_LEVEL
+        expr: ACCESS_LEVEL
+        data_type: VARCHAR(20)
+        description: |
+          Data access level for the employee. Values include:
+          - 'SELF_ONLY': Can only view their own data
+          - 'DIRECT_REPORTS': Can view direct reports' data
+          - 'TEAM': Can view team data
+          - 'REGION': Can view regional data
+          - 'ALL': Can view all data
+        synonyms:
+          - data_access_level
+          - permission_level
+          - access_scope
+      - name: CAN_VIEW_COMPENSATION
+        expr: CAN_VIEW_COMPENSATION
+        data_type: BOOLEAN
+        description: Whether the employee can view compensation data
+        synonyms:
+          - compensation_access
+          - salary_access
+          - pay_access
+      - name: CAN_VIEW_INDIVIDUAL_PERFORMANCE
+        expr: CAN_VIEW_INDIVIDUAL_PERFORMANCE
+        data_type: BOOLEAN
+        description: Whether the employee can view individual performance metrics
+        synonyms:
+          - individual_performance_access
+          - personal_metrics_access
+      - name: CAN_VIEW_TEAM_PERFORMANCE
+        expr: CAN_VIEW_TEAM_PERFORMANCE
+        data_type: BOOLEAN
+        description: Whether the employee can view team performance metrics
+        synonyms:
+          - team_performance_access
+          - team_metrics_access
+      - name: CAN_VIEW_CUSTOMER_DATA
+        expr: CAN_VIEW_CUSTOMER_DATA
+        data_type: BOOLEAN
+        description: Whether the employee can view customer data
+        synonyms:
+          - customer_access
+          - client_data_access
       - name: QUOTA_PERFORMANCE_BAND
         expr: QUOTA_PERFORMANCE_BAND
         data_type: VARCHAR(20)
@@ -523,7 +575,7 @@ custom_instructions: |-
   # - Territory analysis: Use TERRITORY, REGION dimensions
   # - Employee counts: Always use COUNT(DISTINCT employee_id)
 
-  # 6. SNOWFLAKE PRODUCT CATEGORIES
+  # 6. SNOWFLAKE PRODUCT CATEGORIES 
   # The data includes realistic Snowflake products:
   # Data Warehouse, Cortex AI, Analytics Workbench, Data Engineering, 
   # Data Governance, Data Sharing, Developer Tools, Data Lake, Marketplace
