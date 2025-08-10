@@ -30,6 +30,20 @@ from data_filter_modal import (
 
 load_dotenv()
 
+# =============================================================================
+# CURRENT USER CONFIGURATION FOR ENTITLEMENT-BASED FILTERING
+# =============================================================================
+# Set this to the email of the current user to demonstrate entitlement filtering
+# All query results will be filtered based on this user's access level and hierarchy
+
+# Choose one of these users to demonstrate different access levels (PURE HIERARCHY):
+#CURRENT_USER_EMAIL = "sarah.johnson@company.com"    # 1. CRO (TOP) - Reports to: NULL - Can see ALL data
+# CURRENT_USER_EMAIL = "michael.chen@company.com"     # 2. VP Sales - Reports to: Sarah Johnson - Can see West region  
+# CURRENT_USER_EMAIL = "robert.wilson@company.com"    # 3. Regional Manager - Reports to: Michael Chen - Can see West Coast region
+# CURRENT_USER_EMAIL = "patricia.kim@company.com"     # 4. Sales Manager - Reports to: Robert Wilson - Can see California North team
+CURRENT_USER_EMAIL = "addison.wells@company.com"    # 5. Sales Rep (BOTTOM) - Reports to: Patricia Kim - Can see only own data
+# =============================================================================
+
 # --- Environment Variables ---
 ACCOUNT = os.getenv("ACCOUNT")
 HOST = os.getenv("HOST")
@@ -78,6 +92,207 @@ last_user_prompt_global = ""
 SNOWFLAKE_STAGE_PATH = '@"SLACK_SALES_DEMO"."SLACK_SCHEMA"."SLACK_SEMANTIC_MODELS"'
 SNOWFLAKE_FILE_NAME = 'sales_semantic_model.yaml'
 
+
+# --- Entitlement-Based Security Functions ---
+
+def apply_entitlement_filter(sql_query):
+    """
+    Apply comprehensive entitlement filtering to ALL SQL queries for ALL users.
+    Every query is filtered based on the user's position in the hierarchy:
+    - CRO (Sarah): Can see all employees and their data
+    - VP Sales: Can see their region + all subordinates 
+    - Regional Managers: Can see their region + direct reports
+    - Sales Managers: Can see their team + direct reports
+    - Sales Reps: Can see only their own data
+    """
+    if not CURRENT_USER_EMAIL:
+        return sql_query
+    
+    # Replace the original table reference with our filtered view
+    modified_query = sql_query.replace(
+        'FROM slack_sales_demo.slack_schema.sales_semantic_view', 
+        'FROM filtered_semantic_view'
+    ).replace(
+        'FROM SLACK_SALES_DEMO.SLACK_SCHEMA.SALES_SEMANTIC_VIEW', 
+        'FROM filtered_semantic_view'
+    )
+    
+    # Check if the query already has a WITH clause
+    if modified_query.strip().upper().startswith('WITH'):
+        # Insert our CTEs at the beginning of the existing WITH clause
+        # Find the position after "WITH" and insert our CTEs there
+        with_pos = modified_query.upper().find('WITH') + 4
+        
+        entitlement_ctes = f"""RECURSIVE accessible_employees AS (
+    -- Start with current user
+    SELECT 
+        se.EMPLOYEE_ID,
+        se.EMAIL,
+        se.ROLE,
+        0 as HIERARCHY_DEPTH
+    FROM SLACK_SALES_DEMO.SLACK_SCHEMA.SALES_EMPLOYEES se
+    WHERE se.EMAIL = '{CURRENT_USER_EMAIL}' AND se.ACTIVE = TRUE
+    
+    UNION ALL
+    
+    -- Recursively get all subordinates (people who report up to current user)
+    SELECT 
+        se.EMPLOYEE_ID,
+        se.EMAIL,
+        se.ROLE,
+        ae.HIERARCHY_DEPTH + 1
+    FROM SLACK_SALES_DEMO.SLACK_SCHEMA.SALES_EMPLOYEES se
+    JOIN accessible_employees ae ON se.MANAGER_ID = ae.EMPLOYEE_ID
+    WHERE se.ACTIVE = TRUE AND ae.HIERARCHY_DEPTH < 10  -- Prevent infinite recursion
+),
+filtered_semantic_view AS (
+    SELECT sv.*
+    FROM SLACK_SALES_DEMO.SLACK_SCHEMA.SALES_SEMANTIC_VIEW sv
+    JOIN accessible_employees ae ON sv.EMPLOYEE_ID = ae.EMPLOYEE_ID
+),
+"""
+        
+        final_query = (modified_query[:with_pos] + " " + entitlement_ctes + 
+                      modified_query[with_pos:].strip())
+    else:
+        # No existing WITH clause, add our own
+        entitlement_ctes = f"""WITH RECURSIVE accessible_employees AS (
+    -- Start with current user
+    SELECT 
+        se.EMPLOYEE_ID,
+        se.EMAIL,
+        se.ROLE,
+        0 as HIERARCHY_DEPTH
+    FROM SLACK_SALES_DEMO.SLACK_SCHEMA.SALES_EMPLOYEES se
+    WHERE se.EMAIL = '{CURRENT_USER_EMAIL}' AND se.ACTIVE = TRUE
+    
+    UNION ALL
+    
+    -- Recursively get all subordinates (people who report up to current user)
+    SELECT 
+        se.EMPLOYEE_ID,
+        se.EMAIL,
+        se.ROLE,
+        ae.HIERARCHY_DEPTH + 1
+    FROM SLACK_SALES_DEMO.SLACK_SCHEMA.SALES_EMPLOYEES se
+    JOIN accessible_employees ae ON se.MANAGER_ID = ae.EMPLOYEE_ID
+    WHERE se.ACTIVE = TRUE AND ae.HIERARCHY_DEPTH < 10  -- Prevent infinite recursion
+),
+filtered_semantic_view AS (
+    SELECT sv.*
+    FROM SLACK_SALES_DEMO.SLACK_SCHEMA.SALES_SEMANTIC_VIEW sv
+    JOIN accessible_employees ae ON sv.EMPLOYEE_ID = ae.EMPLOYEE_ID
+)
+"""
+        final_query = entitlement_ctes + modified_query.rstrip(';')
+    
+    if DEBUG:
+        print(f"🔒 COMPREHENSIVE ENTITLEMENT FILTER APPLIED for {CURRENT_USER_EMAIL}")
+        print(f"Original SQL: {sql_query[:200]}...")
+        print(f"Filtered SQL: {final_query[:300]}...")
+    
+    return final_query
+
+# --- Background Refinement Functions ---
+
+def background_refinement_analysis(user_prompt, message_ts, channel_id, app_client):
+    """
+    Run refinement analysis in background and add red button if query needs refinement.
+    Shows red button when refine query doesn't return 'Prompt is appropriately specific.'
+    """
+    import time
+    
+    try:
+        # Wait for initial results to settle
+        time.sleep(3)
+        
+        if DEBUG:
+            print(f"🔍 Starting background refinement analysis for: '{user_prompt}'")
+        
+        # Call the existing refine query procedure
+        cur = CONN.cursor()
+        escaped_stage_path = SNOWFLAKE_STAGE_PATH.replace("'", "''")
+        escaped_user_prompt = user_prompt.replace("'", "''")
+        
+        sql_call_formatted = (
+            f"CALL {DATABASE}.{SCHEMA}.REFINE_QUERY("
+            f"'{escaped_stage_path}', "
+            f"'{SNOWFLAKE_FILE_NAME}', "
+            f"'{escaped_user_prompt}')"
+        )
+        
+        cur.execute(sql_call_formatted)
+        result = cur.fetchone()
+        
+        if result:
+            refinement_message = result[0]
+        else:
+            refinement_message = "No refinement suggestions received."
+        
+        if DEBUG:
+            print(f"🔍 Refinement result: '{refinement_message}'")
+        
+        # Check if refinement suggests improvements (NOT "appropriately specific")
+        if "appropriately specific" not in refinement_message.lower():
+            # Add red refinement button to the existing message
+            add_smart_refinement_button(message_ts, channel_id, refinement_message, app_client)
+        else:
+            if DEBUG:
+                print("✅ Query is appropriately specific - no refinement button needed")
+                
+    except Exception as e:
+        if DEBUG:
+            print(f"❌ Error in background refinement analysis: {e}")
+
+def add_smart_refinement_button(message_ts, channel_id, refinement_suggestion, app_client):
+    """Add a red refinement button to existing message with specific suggestion"""
+    
+    try:
+        # Get the current message blocks
+        message_response = app_client.conversations_history(
+            channel=channel_id,
+            latest=message_ts,
+            limit=1,
+            inclusive=True
+        )
+        
+        if not message_response.get('ok') or not message_response.get('messages'):
+            if DEBUG:
+                print("❌ Could not retrieve message for refinement button")
+            return
+            
+        current_blocks = message_response['messages'][0].get('blocks', [])
+        
+        # Add the smart refinement section
+        refinement_block = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"💡 *Suggested refinement:* {refinement_suggestion}"
+            },
+            "accessory": {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Prompt Warning!"},
+                "style": "danger",  # Red button
+                "action_id": REFINE_QUERY_BUTTON_ACTION_ID
+            }
+        }
+        
+        # Update the message with the new refinement block
+        updated_blocks = current_blocks + [refinement_block]
+        
+        app_client.chat_update(
+            channel=channel_id,
+            ts=message_ts,
+            blocks=updated_blocks
+        )
+        
+        if DEBUG:
+            print(f"✅ Added smart refinement button to message {message_ts}")
+            
+    except Exception as e:
+        if DEBUG:
+            print(f"❌ Error adding smart refinement button: {e}")
 
 # --- Slack Message Handlers ---
 
@@ -424,8 +639,11 @@ def display_agent_response(content, say, app_client, original_body):
 
     if content['sql']:
         sql = content['sql']
+        
+        # Apply entitlement-based filtering to ALL queries
+        filtered_sql = apply_entitlement_filter(sql)
 
-        df = pd.read_sql(sql, CONN)
+        df = pd.read_sql(filtered_sql, CONN)
 
         if DEBUG:
             print("Original DataFrame info:")
@@ -480,11 +698,32 @@ def display_agent_response(content, say, app_client, original_body):
             print("\nDataFrame head after conversion:")
             print(df.head())
 
+        # Check for empty DataFrame (potentially due to entitlement filtering)
+        if len(df) == 0:
+            final_blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "🚫 *There were no results for your query. This may be a permissions issue.*"
+                }
+            })
+            
+            # Add action buttons even for empty results (user might want to see SQL, etc.)
+            final_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=0, include_row_limit=False))
+            
+            # Cache the empty DataFrame and SQL for potential button interactions
+            message_ts = say(text="No results found", blocks=final_blocks)['ts']
+            global_dataframe_cache[message_ts] = df
+            global_sql_cache[message_ts] = sql
+            global_original_dataframe_cache[message_ts] = df.copy()
+            
+            return
+
         # Handle Single-Row Answers Specifically
         if len(df) == 1:
             formatted_answer = ""
             for col in df.columns:
-                formatted_answer += f"*{col.replace('_', ' ').title()}*: {df[col].iloc[0]}\n"
+                formatted_answer += f"{col.replace('_', ' ').title()}: {df[col].iloc[0]}\n"
 
             final_blocks.append({
                 "type": "rich_text",
@@ -560,6 +799,14 @@ def display_agent_response(content, say, app_client, original_body):
             global_sql_cache[message_ts] = sql
             global_dataframe_cache[message_ts] = df
             global_original_dataframe_cache[message_ts] = df.copy()  # Store original unfiltered data
+            
+            # Start background refinement analysis
+            import threading
+            threading.Thread(
+                target=background_refinement_analysis,
+                args=(last_user_prompt_global, message_ts, channel_id, app_client),
+                daemon=True
+            ).start()
 
         except Exception as e:
             print(f"Error posting initial message to Slack: {e}")
@@ -699,8 +946,9 @@ def handle_row_limit_change(ack, body, client):
             return
         
         try:
-            # Re-execute the SQL query
-            df = pd.read_sql(sql_query, CONN)
+            # Re-execute the SQL query with entitlement filtering
+            filtered_sql = apply_entitlement_filter(sql_query)
+            df = pd.read_sql(filtered_sql, CONN)
             if DEBUG:
                 print(f"Row limit change: Re-executed SQL query, got {len(df)} rows")
             
@@ -730,6 +978,42 @@ def handle_row_limit_change(ack, body, client):
             return
     
     try:
+        
+        # Check for empty DataFrame first
+        if len(df) == 0:
+            # Get current blocks and rebuild with empty message
+            current_blocks = body['message']['blocks']
+            updated_blocks = []
+            
+            for block in current_blocks:
+                # Skip the existing table/section blocks and action buttons
+                if block.get("type") == "section" and (block.get("text", {}).get("text", "").startswith("```") or "There were no results" in block.get("text", {}).get("text", "")):
+                    continue
+                elif block.get("type") == "actions":
+                    continue
+                else:
+                    updated_blocks.append(block)
+            
+            # Add the no results message
+            updated_blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "🚫 *There were no results for your query. This may be a permissions issue.*"
+                }
+            })
+            
+            # Add action buttons without row limit dropdown
+            updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=0, include_row_limit=False))
+            
+            # Update the message
+            client.chat_update(
+                channel=channel_id,
+                ts=message_ts,
+                blocks=updated_blocks,
+                text="No results found."
+            )
+            return
         
         # Apply the selected row limit
         df_limited = df.head(selected_limit)
@@ -867,7 +1151,7 @@ def handle_refine_query_button_click(ack, body, client):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"**Bottom Line:** {refinement_message}"
+                    "text": f"Bottom Line: {refinement_message}"
                 }
             },
             get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=False)
@@ -1031,8 +1315,9 @@ def handle_download_data_button_click(ack, body, client):
 
         )
 
-        # Re-execute the SQL query to get the data
-        df = pd.read_sql(sql_query, CONN)
+        # Re-execute the SQL query to get the data with entitlement filtering
+        filtered_sql = apply_entitlement_filter(sql_query)
+        df = pd.read_sql(filtered_sql, CONN)
 
         if DEBUG:
             print(f"DEBUG: DataFrame shape for download: {df.shape}")

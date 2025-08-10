@@ -526,9 +526,12 @@ def create_filtered_result_message(filtered_df, applied_filters, original_count)
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "⚠️ *No data matches the applied filters.* Try adjusting your filter criteria."
+                "text": "🚫 *There were no results for your query. This may be a permissions issue.*"
             }
         })
+        
+        # Add action buttons even for empty filtered results
+        blocks.append(get_action_buttons_block(include_show_sql=False, data_size=0, include_row_limit=False))
     
     return blocks
 
