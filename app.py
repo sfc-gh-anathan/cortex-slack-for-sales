@@ -233,6 +233,9 @@ def background_refinement_analysis(user_prompt, message_ts, channel_id, app_clie
         else:
             refinement_message = "No refinement suggestions received."
         
+        # Always log the refinement result for visibility
+        print(f"📝 PROMPT WARNING RESULT: '{refinement_message}'")
+        
         if DEBUG:
             print(f"🔍 Refinement result: '{refinement_message}'")
         
@@ -240,13 +243,61 @@ def background_refinement_analysis(user_prompt, message_ts, channel_id, app_clie
         if "appropriately specific" not in refinement_message.lower():
             # Add red refinement button to the existing message
             add_smart_refinement_button(message_ts, channel_id, refinement_message, app_client)
+            print("⚠️ PROMPT WARNING DISPLAYED: Refinement suggestions shown to user")
         else:
+            # Add green checkmark for appropriately specific queries
+            add_prompt_specific_notification(message_ts, channel_id, app_client)
+            print("✅ PROMPT WARNING SKIPPED: Query is appropriately specific")
             if DEBUG:
                 print("✅ Query is appropriately specific - no refinement button needed")
                 
     except Exception as e:
         if DEBUG:
             print(f"❌ Error in background refinement analysis: {e}")
+
+def add_prompt_specific_notification(message_ts, channel_id, app_client):
+    """Add a green checkmark notification for appropriately specific queries"""
+    
+    try:
+        # Get the current message blocks
+        message_response = app_client.conversations_history(
+            channel=channel_id,
+            latest=message_ts,
+            limit=1,
+            inclusive=True
+        )
+        
+        if not message_response.get('ok') or not message_response.get('messages'):
+            if DEBUG:
+                print("❌ Could not retrieve message for prompt specific notification")
+            return
+            
+        current_blocks = message_response['messages'][0].get('blocks', [])
+        
+        # Add the green checkmark notification
+        specific_notification_block = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "✅ *Prompt satisfactory*"
+            }
+        }
+        
+        # Update the message with the new notification block
+        updated_blocks = current_blocks + [specific_notification_block]
+        
+        app_client.chat_update(
+            channel=channel_id,
+            ts=message_ts,
+            blocks=updated_blocks
+        )
+        
+        if DEBUG:
+            print(f"✅ Added prompt specific notification to message {message_ts}")
+            
+    except Exception as e:
+        if DEBUG:
+            print(f"❌ Error adding prompt specific notification: {e}")
 
 def add_smart_refinement_button(message_ts, channel_id, refinement_suggestion, app_client):
     """Add a red refinement button to existing message with specific suggestion"""
@@ -272,23 +323,12 @@ def add_smart_refinement_button(message_ts, channel_id, refinement_suggestion, a
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"💡 *Suggested refinement:* {refinement_suggestion}"
+                "text": f"🛑 *Prompt Warning*\n{refinement_suggestion}"
             }
         }
         
-        refinement_button_block = {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Prompt Warning!"},
-                    "style": "danger"  # Red button - no action_id makes it non-functional
-                }
-            ]
-        }
-        
-        # Update the message with the new refinement blocks
-        updated_blocks = current_blocks + [refinement_text_block, refinement_button_block]
+        # Update the message with just the refinement text (no button)
+        updated_blocks = current_blocks + [refinement_text_block]
         
         app_client.chat_update(
             channel=channel_id,
@@ -547,6 +587,8 @@ def get_action_buttons_block(include_show_sql=True, data_size=None, include_row_
         get_render_chart_button_element(),
         get_download_data_button_element()
     ])
+    
+
 
 
     return {
@@ -1651,4 +1693,5 @@ if __name__ == "__main__":
     CONN, CORTEX_APP = init()
     Root = Root(CONN) # Assuming Root is used elsewhere or for Snowpark Session
     print("Starting SocketModeHandler...")
+    SocketModeHandler(app, SLACK_APP_TOKEN).start()
     SocketModeHandler(app, SLACK_APP_TOKEN).start()
