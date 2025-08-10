@@ -41,10 +41,19 @@ tables:
       - name: ROLE
         expr: ROLE
         data_type: VARCHAR(30)
-        description: Job role/title of the sales employee
+        description: |
+          Job role/title of the sales employee. Specific values include:
+          - 'CRO' (Chief Revenue Officer)
+          - 'VP Sales' (Vice President of Sales)  
+          - 'Regional Manager' (Regional Sales Manager)
+          - 'Sales Manager' (Front-line Sales Manager)
+          - 'Sales Rep' (Individual Sales Representative)
+          Note: When referring to "managers" or "management roles", use 'Sales Manager', 'Regional Manager', 'VP Sales', or 'CRO'.
         synonyms:
           - title
           - position
+          - job_title
+          - sales_role
           - job_title
       - name: TERRITORY
         expr: TERRITORY
@@ -84,10 +93,17 @@ tables:
       - name: ROLE_CATEGORY
         expr: ROLE_CATEGORY
         data_type: VARCHAR(30)
-        description: Role grouping (Individual Contributor, Manager, Executive)
+        description: |
+          Role grouping for broad analysis. Values:
+          - 'Individual Contributor' = Sales Rep
+          - 'Manager' = Sales Manager, Regional Manager  
+          - 'Executive' = VP Sales, CRO
+          Use this for high-level role analysis. For specific manager queries, use ROLE field with 'Sales Manager' or 'Regional Manager'.
         synonyms:
           - role_type
           - employee_level
+          - role_group
+          - management_level
       - name: TENURE_CATEGORY
         expr: TENURE_CATEGORY
         data_type: VARCHAR(20)
@@ -411,6 +427,40 @@ verified_queries:
       FROM employee_performance
     verified_by: System
     verified_at: 1750300150
+
+  - name: manager_performance_by_role
+    question: "How are sales managers performing compared to regional managers?"
+    use_as_onboarding_question: true
+    sql: |
+      SELECT 
+        role,
+        COUNT(DISTINCT employee_id) as manager_count,
+        AVG(quota_attainment) as avg_quota_attainment,
+        SUM(sales_amount) as total_sales
+      FROM sales_semantic_view 
+      WHERE role IN ('Sales Manager', 'Regional Manager')
+      GROUP BY role
+      ORDER BY avg_quota_attainment DESC
+    verified_by: System
+    verified_at: 1750300200
+
+  - name: top_sales_managers
+    question: "Who are the top performing sales managers this year?"
+    use_as_onboarding_question: true
+    sql: |
+      SELECT 
+        full_name,
+        role,
+        territory,
+        AVG(quota_attainment) as avg_quota_attainment,
+        SUM(sales_amount) as total_sales
+      FROM sales_semantic_view 
+      WHERE role = 'Sales Manager' AND period_year = 2024
+      GROUP BY full_name, role, territory
+      ORDER BY avg_quota_attainment DESC
+      LIMIT 10
+    verified_by: System
+    verified_at: 1750300250
 
   - name: product_performance_analysis
     question: "Which Snowflake product categories generate the highest average deal values?"
