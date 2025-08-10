@@ -1,6 +1,10 @@
 name: sales_semantic_model
+description: |
+  Sales performance semantic model providing monthly sales metrics and quota tracking.
+  Performance metrics are calculated monthly, allowing employees to be high performers 
+  in some months but not others based on seasonal factors and deal timing.
 tables:
-  # Monthly Performance Aggregates View
+  # Monthly Performance Aggregates View - Each record represents one employee's performance for one month
   - name: SALES_SEMANTIC_VIEW
     base_table:
       database: SLACK_SALES_DEMO
@@ -19,11 +23,13 @@ tables:
       - name: EMPLOYEE_ID
         expr: EMPLOYEE_ID
         data_type: VARCHAR(20)
-        description: Unique identifier for each sales employee
+        description: Unique identifier for each sales employee (use for counting unique people)
         synonyms:
           - emp_id
           - employee_number
           - staff_id
+          - salesperson_id
+          - individual_employee
       - name: FULL_NAME
         expr: FULL_NAME
         data_type: VARCHAR(101)
@@ -66,10 +72,14 @@ tables:
       - name: QUOTA_PERFORMANCE_BAND
         expr: QUOTA_PERFORMANCE_BAND
         data_type: VARCHAR(20)
-        description: Performance category (Below, Approaching, Meets, Exceeds)
+        description: |
+          Monthly performance category based on quota attainment:
+          - Below (<80%), Approaching (80-99%), Meets (100-119%), Exceeds (120%+).
+          Note: This is calculated monthly, so employees can move between bands.
         synonyms:
           - performance_level
           - quota_status
+          - monthly_performance_band
           - achievement_level
       - name: ROLE_CATEGORY
         expr: ROLE_CATEGORY
@@ -142,11 +152,17 @@ tables:
       - name: QUOTA_ATTAINMENT
         expr: QUOTA_ATTAINMENT
         data_type: DECIMAL(8,4)
-        description: Percentage of quota achieved (e.g., 1.05 = 105%)
+        description: |
+          Monthly percentage of quota achieved (e.g., 1.05 = 105%). 
+          This is calculated monthly as: monthly_sales ÷ monthly_quota.
+          High performer status (>1.4) is determined monthly, so employees 
+          can be high performers some months but not others based on 
+          seasonal factors, deal timing, and market conditions.
         synonyms:
           - quota_achievement
           - quota_percent
           - attainment
+          - monthly_quota_performance
       - name: COMMISSION_EARNED
         expr: COMMISSION_EARNED
         data_type: DECIMAL(10,2)
@@ -369,13 +385,32 @@ verified_queries:
     sql: |
       SELECT manager_name, 
              AVG(quota_attainment) as avg_quota_attainment,
-             COUNT(*) as team_size
+             COUNT(DISTINCT employee_id) as team_size
       FROM sales_semantic_view 
       WHERE period_year = 2023 AND manager_name IS NOT NULL
       GROUP BY manager_name
       ORDER BY avg_quota_attainment DESC
     verified_by: System
     verified_at: 1750300100
+
+  - name: percentage_employees_meeting_quota
+    question: "What percentage of salespeople met their quota?"
+    use_as_onboarding_question: true
+    sql: |
+      WITH employee_performance AS (
+        SELECT employee_id, full_name, role,
+               AVG(quota_attainment) as avg_quota_attainment
+        FROM sales_semantic_view 
+        WHERE role = 'Sales Rep'
+        GROUP BY employee_id, full_name, role
+      )
+      SELECT 
+        COUNT(*) as total_salespeople,
+        COUNT(CASE WHEN avg_quota_attainment >= 1.0 THEN 1 END) as met_quota_count,
+        COUNT(CASE WHEN avg_quota_attainment >= 1.0 THEN 1 END) / NULLIF(COUNT(*), 0) as percentage_met_quota
+      FROM employee_performance
+    verified_by: System
+    verified_at: 1750300150
 
   - name: product_performance_analysis
     question: "Which Snowflake product categories generate the highest average deal values?"
@@ -423,14 +458,22 @@ custom_instructions: |-
   # - Manager performance vs direct report transactions
   # - Product mix impact on quota attainment
 
-  # 4. COMMON ANALYSIS PATTERNS
+  # 4. IMPORTANT: EMPLOYEE vs RECORD COUNTING
+  # SALES_SEMANTIC_VIEW contains monthly performance records (one per employee per month).
+  # When asked about "salespeople", "employees", or "individuals":
+  # - ALWAYS use COUNT(DISTINCT employee_id) or GROUP BY employee_id first
+  # - For employee-level analysis, aggregate monthly data using AVG() or SUM()
+  # - Example: "percentage of salespeople meeting quota" = employees with AVG(quota_attainment) >= 1.0
+
+  # 5. COMMON ANALYSIS PATTERNS
   # - Manager rollups: Use hierarchy fields (MANAGER_NAME, ROLE_CATEGORY)
   # - Quota analysis: Use QUOTA_ATTAINMENT, QUOTA_PERFORMANCE_BAND
   # - Product analysis: Use PRODUCT_CATEGORY from transaction view
   # - Compensation: Use COMMISSION_EARNED, TOTAL_COMPENSATION
   # - Territory analysis: Use TERRITORY, REGION dimensions
+  # - Employee counts: Always use COUNT(DISTINCT employee_id)
 
-  # 5. SNOWFLAKE PRODUCT CATEGORIES
+  # 6. SNOWFLAKE PRODUCT CATEGORIES
   # The data includes realistic Snowflake products:
   # Data Warehouse, Cortex AI, Analytics Workbench, Data Engineering, 
   # Data Governance, Data Sharing, Developer Tools, Data Lake, Marketplace

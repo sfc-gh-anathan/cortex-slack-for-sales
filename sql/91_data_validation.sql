@@ -244,6 +244,49 @@ SELECT
     END as test_result
 FROM SALES_PERFORMANCE;
 
+-- Check quota achievement distribution (target: ~90% meet quota)
+SELECT 
+    'Quota Achievement Distribution' as test_name,
+    COUNT(DISTINCT sp.EMPLOYEE_ID) as total_employees,
+    COUNT(DISTINCT CASE WHEN sp.QUOTA_ATTAINMENT >= 1.0 THEN sp.EMPLOYEE_ID END) as employees_meeting_quota,
+    ROUND(COUNT(DISTINCT CASE WHEN sp.QUOTA_ATTAINMENT >= 1.0 THEN sp.EMPLOYEE_ID END) * 100.0 / 
+          COUNT(DISTINCT sp.EMPLOYEE_ID), 1) as percentage_meeting_quota,
+    CASE 
+        WHEN COUNT(DISTINCT CASE WHEN sp.QUOTA_ATTAINMENT >= 1.0 THEN sp.EMPLOYEE_ID END) * 100.0 / 
+             COUNT(DISTINCT sp.EMPLOYEE_ID) BETWEEN 88 AND 92 THEN 'PASS'
+        ELSE 'FAIL - Expected ~90% quota achievement'
+    END as test_result
+FROM SALES_PERFORMANCE sp
+JOIN SALES_EMPLOYEES se ON sp.EMPLOYEE_ID = se.EMPLOYEE_ID
+WHERE se.ACTIVE = TRUE AND sp.QUOTA_ATTAINMENT > 0;
+
+-- Check quota achievement by role
+SELECT 
+    'Quota Achievement by Role' as test_name,
+    se.ROLE,
+    COUNT(DISTINCT sp.EMPLOYEE_ID) as total_employees,
+    COUNT(DISTINCT CASE WHEN sp.QUOTA_ATTAINMENT >= 1.0 THEN sp.EMPLOYEE_ID END) as employees_meeting_quota,
+    ROUND(COUNT(DISTINCT CASE WHEN sp.QUOTA_ATTAINMENT >= 1.0 THEN sp.EMPLOYEE_ID END) * 100.0 / 
+          COUNT(DISTINCT sp.EMPLOYEE_ID), 1) as percentage_meeting_quota,
+    CASE 
+        WHEN COUNT(DISTINCT CASE WHEN sp.QUOTA_ATTAINMENT >= 1.0 THEN sp.EMPLOYEE_ID END) * 100.0 / 
+             COUNT(DISTINCT sp.EMPLOYEE_ID) BETWEEN 88 AND 92 THEN 'PASS'
+        ELSE 'REVIEW'
+    END as test_result
+FROM SALES_PERFORMANCE sp
+JOIN SALES_EMPLOYEES se ON sp.EMPLOYEE_ID = se.EMPLOYEE_ID
+WHERE se.ACTIVE = TRUE AND sp.QUOTA_ATTAINMENT > 0
+GROUP BY se.ROLE
+ORDER BY 
+    CASE se.ROLE 
+        WHEN 'CRO' THEN 1
+        WHEN 'VP Sales' THEN 2
+        WHEN 'Regional Manager' THEN 3
+        WHEN 'Sales Manager' THEN 4
+        WHEN 'Sales Rep' THEN 5
+        ELSE 6
+    END;
+
 -- =============================================================================
 -- 5. VIEW Validation (TRANSACTION_SEMANTIC_VIEW)
 -- =============================================================================
@@ -342,12 +385,13 @@ CROSS JOIN (
 -- =============================================================================
 SELECT 'BUSINESS_LOGIC_VALIDATION' as validation_test;
 
--- Check quota attainment calculations
+-- Check quota attainment calculations (by performance records)
 SELECT 
-    'Quota Attainment Logic' as test_name,
+    'Quota Attainment Logic - Records' as test_name,
     COUNT(*) as total_performance_records,
     COUNT(CASE WHEN QUOTA_ATTAINMENT > 0 THEN 1 END) as records_with_quota,
-    COUNT(CASE WHEN QUOTA_ATTAINMENT > 2.0 THEN 1 END) as high_performers,
+    COUNT(CASE WHEN QUOTA_ATTAINMENT > 1.4 THEN 1 END) as high_performer_records,
+    ROUND(COUNT(CASE WHEN QUOTA_ATTAINMENT > 1.4 THEN 1 END) * 100.0 / COUNT(*), 1) as pct_high_performer_records,
     COUNT(CASE WHEN COMMISSION_EARNED > 0 THEN 1 END) as records_with_commission,
     CASE 
         WHEN COUNT(CASE WHEN QUOTA_ATTAINMENT > 0 THEN 1 END) > 0 
@@ -355,6 +399,21 @@ SELECT
         ELSE 'FAIL'
     END as test_result
 FROM SALES_PERFORMANCE;
+
+-- Check quota attainment by unique employees (more meaningful)
+SELECT 
+    'Quota Attainment Logic - Employees' as test_name,
+    COUNT(DISTINCT sp.EMPLOYEE_ID) as total_employees,
+    COUNT(DISTINCT CASE WHEN sp.QUOTA_ATTAINMENT > 1.4 THEN sp.EMPLOYEE_ID END) as high_performer_employees,
+    ROUND(COUNT(DISTINCT CASE WHEN sp.QUOTA_ATTAINMENT > 1.4 THEN sp.EMPLOYEE_ID END) * 100.0 / 
+          COUNT(DISTINCT sp.EMPLOYEE_ID), 1) as pct_high_performer_employees,
+    CASE 
+        WHEN COUNT(DISTINCT CASE WHEN sp.QUOTA_ATTAINMENT > 1.4 THEN sp.EMPLOYEE_ID END) * 100.0 / 
+             COUNT(DISTINCT sp.EMPLOYEE_ID) BETWEEN 15 AND 25 THEN 'PASS - Expected ~20%'
+        ELSE 'REVIEW'
+    END as test_result
+FROM SALES_PERFORMANCE sp
+WHERE sp.QUOTA_ATTAINMENT > 0;
 
 -- =============================================================================
 -- 9. Final Summary Report

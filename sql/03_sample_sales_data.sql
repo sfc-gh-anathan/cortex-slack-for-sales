@@ -44,22 +44,67 @@ INSERT INTO SALES_EMPLOYEES VALUES
 
 -- Sales Representatives (Report to Sales Managers) - Generate realistic numbers
 INSERT INTO SALES_EMPLOYEES 
-WITH rep_generator AS (
+WITH realistic_names AS (
     SELECT 
-        'EMP' || LPAD(100 + ROW_NUMBER() OVER (ORDER BY sm.EMPLOYEE_ID, gen.seq), 3, '0') as EMPLOYEE_ID,
-        'Rep' || (100 + ROW_NUMBER() OVER (ORDER BY sm.EMPLOYEE_ID, gen.seq)) as FIRST_NAME,
-        'User' || (100 + ROW_NUMBER() OVER (ORDER BY sm.EMPLOYEE_ID, gen.seq)) as LAST_NAME,
-        'rep' || (100 + ROW_NUMBER() OVER (ORDER BY sm.EMPLOYEE_ID, gen.seq)) || '@company.com' as EMAIL,
-        'Sales Rep' as ROLE,
-        sm.TERRITORY as TERRITORY,
-        sm.REGION as REGION,
-        DATEADD('day', UNIFORM(0, 365, RANDOM()), DATE('2022-01-01')) as HIRE_DATE,
-        UNIFORM(55000, 75000, RANDOM()) as BASE_SALARY,
-        0.0300 as COMMISSION_RATE,
-        UNIFORM(1600000, 2700000, RANDOM()) as QUOTA_AMOUNT,
+        ROW_NUMBER() OVER (ORDER BY first_name, last_name) as name_id,
+        first_name, 
+        last_name,
+        LOWER(first_name) || '.' || LOWER(last_name) || '@company.com' as email
+    FROM (
+        SELECT 'Alex' as first_name, 'Thompson' as last_name UNION ALL
+        SELECT 'Jordan', 'Mitchell' UNION ALL SELECT 'Casey', 'Parker' UNION ALL
+        SELECT 'Morgan', 'Bennett' UNION ALL SELECT 'Riley', 'Cooper' UNION ALL
+        SELECT 'Avery', 'Reed' UNION ALL SELECT 'Quinn', 'Bailey' UNION ALL
+        SELECT 'Sage', 'Rivera' UNION ALL SELECT 'Blake', 'Torres' UNION ALL
+        SELECT 'Drew', 'Ward' UNION ALL SELECT 'Emery', 'Brooks' UNION ALL
+        SELECT 'Finley', 'Gray' UNION ALL SELECT 'Hayden', 'Watson' UNION ALL
+        SELECT 'Jamie', 'Kelly' UNION ALL SELECT 'Kai', 'Sanders' UNION ALL
+        SELECT 'Lane', 'Price' UNION ALL SELECT 'Max', 'Bennett' UNION ALL
+        SELECT 'Nova', 'Wood' UNION ALL SELECT 'Oakley', 'Barnes' UNION ALL
+        SELECT 'Parker', 'Ross' UNION ALL SELECT 'River', 'Henderson' UNION ALL
+        SELECT 'Skyler', 'Coleman' UNION ALL SELECT 'Tatum', 'Jenkins' UNION ALL
+        SELECT 'Val', 'Perry' UNION ALL SELECT 'Winter', 'Powell' UNION ALL
+        SELECT 'Zion', 'Long' UNION ALL SELECT 'Ari', 'Patterson' UNION ALL
+        SELECT 'Bay', 'Hughes' UNION ALL SELECT 'Cameron', 'Flores' UNION ALL
+        SELECT 'Dakota', 'Washington' UNION ALL SELECT 'Ellis', 'Butler' UNION ALL
+        SELECT 'Frances', 'Simmons' UNION ALL SELECT 'Gray', 'Foster' UNION ALL
+        SELECT 'Harper', 'Gonzales' UNION ALL SELECT 'Indigo', 'Bryant' UNION ALL
+        SELECT 'Jules', 'Alexander' UNION ALL SELECT 'Kris', 'Russell' UNION ALL
+        SELECT 'Lou', 'Griffin' UNION ALL SELECT 'Micah', 'Diaz' UNION ALL
+        SELECT 'Nico', 'Hayes' UNION ALL SELECT 'Ocean', 'Myers' UNION ALL
+        SELECT 'Phoenix', 'Ford' UNION ALL SELECT 'Reese', 'Hamilton' UNION ALL
+        SELECT 'Sam', 'Graham' UNION ALL SELECT 'True', 'Sullivan' UNION ALL
+        SELECT 'Unity', 'Wallace' UNION ALL SELECT 'Vale', 'Woods' UNION ALL
+        SELECT 'Wren', 'Cole' UNION ALL SELECT 'Sage', 'West' UNION ALL
+        SELECT 'Rowan', 'Jordan' UNION ALL SELECT 'Peyton', 'Owens' UNION ALL
+        SELECT 'Marlowe', 'Reynolds' UNION ALL SELECT 'Kendall', 'Fisher' UNION ALL
+        SELECT 'Jaden', 'Ellis' UNION ALL SELECT 'Hayden', 'Harrison' UNION ALL
+        SELECT 'Eden', 'Gibson' UNION ALL SELECT 'Darcy', 'McDonald' UNION ALL
+        SELECT 'Bryce', 'Cruz' UNION ALL SELECT 'Aubrey', 'Marshall' UNION ALL
+        SELECT 'Aspen', 'Ortiz' UNION ALL SELECT 'Arden', 'Gomez' UNION ALL
+        SELECT 'Amari', 'Murray' UNION ALL SELECT 'Aiden', 'Freeman' UNION ALL
+        SELECT 'Addison', 'Wells' UNION ALL SELECT 'Adrian', 'Webb' UNION ALL
+        SELECT 'Charlie', 'Simpson' UNION ALL SELECT 'Devon', 'Stevens' UNION ALL
+        SELECT 'Emerson', 'Tucker' UNION ALL SELECT 'Finley', 'Porter' UNION ALL
+        SELECT 'Glenn', 'Hunter' UNION ALL SELECT 'Haven', 'Hicks' UNION ALL
+        SELECT 'Iris', 'Crawford' UNION ALL SELECT 'Justice', 'Henry' UNION ALL
+        SELECT 'Kellen', 'Boyd' UNION ALL SELECT 'Lennox', 'Mason' UNION ALL
+        SELECT 'Memphis', 'Morales' UNION ALL SELECT 'Noel', 'Kennedy' UNION ALL
+        SELECT 'Orion', 'Warren' UNION ALL SELECT 'Palmer', 'Dixon' UNION ALL
+        SELECT 'Quincy', 'Ramos' UNION ALL SELECT 'Remy', 'Reeves' UNION ALL
+        SELECT 'Shay', 'Burns' UNION ALL SELECT 'Tanner', 'Gordon' UNION ALL
+        SELECT 'Urban', 'Shaw' UNION ALL SELECT 'Vesper', 'Holmes' UNION ALL
+        SELECT 'Wynn', 'Rice' UNION ALL SELECT 'Xander', 'Robertson' UNION ALL
+        SELECT 'Yale', 'Hunt' UNION ALL SELECT 'Zara', 'Black'
+    ) names
+),
+base_combinations AS (
+    SELECT 
         sm.EMPLOYEE_ID as MANAGER_ID,
-        TRUE as ACTIVE,
-        CURRENT_TIMESTAMP() as CREATED_DATE
+        sm.TERRITORY,
+        sm.REGION,
+        gen.seq,
+        ROW_NUMBER() OVER (ORDER BY sm.EMPLOYEE_ID, gen.seq) as rep_sequence
     FROM (
         SELECT EMPLOYEE_ID, TERRITORY, REGION
         FROM SALES_EMPLOYEES 
@@ -70,8 +115,31 @@ WITH rep_generator AS (
         SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL 
         SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
     ) gen -- 9 reps per manager = ~99 total reps
+),
+rep_generator AS (
+    SELECT 
+        'EMP' || LPAD(100 + bc.rep_sequence, 3, '0') as EMPLOYEE_ID,
+        rn.first_name as FIRST_NAME,
+        rn.last_name as LAST_NAME,
+        rn.email as EMAIL,
+        'Sales Rep' as ROLE,
+        bc.TERRITORY as TERRITORY,
+        bc.REGION as REGION,
+        DATEADD('day', UNIFORM(0, 365, RANDOM()), DATE('2022-01-01')) as HIRE_DATE,
+        UNIFORM(55000, 75000, RANDOM()) as BASE_SALARY,
+        0.0300 as COMMISSION_RATE,
+        UNIFORM(1600000, 2700000, RANDOM()) as QUOTA_AMOUNT,
+        bc.MANAGER_ID as MANAGER_ID,
+        TRUE as ACTIVE,
+        CURRENT_TIMESTAMP() as CREATED_DATE
+    FROM base_combinations bc
+    JOIN realistic_names rn ON rn.name_id = MOD(bc.rep_sequence - 1, (SELECT COUNT(*) FROM realistic_names)) + 1
 )
-SELECT * FROM rep_generator;
+SELECT 
+    EMPLOYEE_ID, FIRST_NAME, LAST_NAME, EMAIL, ROLE, TERRITORY, REGION, 
+    HIRE_DATE, BASE_SALARY, COMMISSION_RATE, QUOTA_AMOUNT, MANAGER_ID, 
+    ACTIVE, CREATED_DATE
+FROM rep_generator;
 
 -- 2. Create Customer Assignments
 INSERT INTO CUSTOMER_ASSIGNMENTS 
@@ -197,14 +265,40 @@ performance_with_quotas AS (
         se.COMMISSION_RATE,
         CASE 
             WHEN se.QUOTA_AMOUNT > 0 THEN 
-                LEAST(ROUND(ma.SALES_AMOUNT / (se.QUOTA_AMOUNT / 12), 4), 3.0000)
+                -- Use realistic distribution where ~90% of ALL employees meet quota (not 100%)
+                -- This applies to both Sales Reps and Managers for consistent distribution
+                CASE WHEN MOD(ABS(HASH(se.EMPLOYEE_ID)), 100) < 10 
+                     THEN 
+                        -- 10% underperform (0.75-0.99)
+                        ROUND(0.75 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_MONTH)), 24) / 100.0), 4) 
+                     ELSE 
+                        -- 90% meet/exceed quota (1.0-1.50)
+                        ROUND(1.0 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_YEAR)), 50) / 100.0), 4)
+                END
             ELSE 0
         END as QUOTA_ATTAINMENT,
         CASE 
-            WHEN se.QUOTA_AMOUNT > 0 AND ma.SALES_AMOUNT / (se.QUOTA_AMOUNT / 12) > 1.5 THEN ROUND(ma.SALES_AMOUNT * 0.05, 2)
-            WHEN se.QUOTA_AMOUNT > 0 AND ma.SALES_AMOUNT / (se.QUOTA_AMOUNT / 12) > 1.3 THEN ROUND(ma.SALES_AMOUNT * 0.03, 2)
-            WHEN se.QUOTA_AMOUNT > 0 AND ma.SALES_AMOUNT / (se.QUOTA_AMOUNT / 12) > 1.2 THEN ROUND(ma.SALES_AMOUNT * 0.02, 2)
-            WHEN se.QUOTA_AMOUNT > 0 AND ma.SALES_AMOUNT / (se.QUOTA_AMOUNT / 12) > 1.0 THEN ROUND(ma.SALES_AMOUNT * 0.01, 2)
+            -- Calculate bonus based on the generated quota attainment, not actual sales
+            WHEN se.QUOTA_AMOUNT > 0 THEN
+                CASE 
+                    WHEN (CASE WHEN MOD(ABS(HASH(se.EMPLOYEE_ID)), 100) < 10 
+                               THEN ROUND(0.75 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_MONTH)), 24) / 100.0), 4) 
+                               ELSE ROUND(1.0 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_YEAR)), 50) / 100.0), 4)
+                          END) > 1.5 THEN ROUND((se.QUOTA_AMOUNT / 12) * 0.05, 2)
+                    WHEN (CASE WHEN MOD(ABS(HASH(se.EMPLOYEE_ID)), 100) < 10 
+                               THEN ROUND(0.75 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_MONTH)), 24) / 100.0), 4) 
+                               ELSE ROUND(1.0 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_YEAR)), 50) / 100.0), 4)
+                          END) > 1.3 THEN ROUND((se.QUOTA_AMOUNT / 12) * 0.03, 2)
+                    WHEN (CASE WHEN MOD(ABS(HASH(se.EMPLOYEE_ID)), 100) < 10 
+                               THEN ROUND(0.75 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_MONTH)), 24) / 100.0), 4) 
+                               ELSE ROUND(1.0 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_YEAR)), 50) / 100.0), 4)
+                          END) > 1.2 THEN ROUND((se.QUOTA_AMOUNT / 12) * 0.02, 2)
+                    WHEN (CASE WHEN MOD(ABS(HASH(se.EMPLOYEE_ID)), 100) < 10 
+                               THEN ROUND(0.75 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_MONTH)), 24) / 100.0), 4) 
+                               ELSE ROUND(1.0 + (MOD(ABS(HASH(se.EMPLOYEE_ID, ma.PERIOD_YEAR)), 50) / 100.0), 4)
+                          END) > 1.0 THEN ROUND((se.QUOTA_AMOUNT / 12) * 0.01, 2)
+                    ELSE 0
+                END
             ELSE 0
         END as BONUS_EARNED
     FROM monthly_aggregates ma
