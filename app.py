@@ -234,7 +234,7 @@ def get_row_limit_dropdown_element(data_size=None):
     options = []
     for value in sorted(set(valid_options)):
         options.append({
-            "text": {"type": "plain_text", "text": f"{value} rows"}, 
+            "text": {"type": "plain_text", "text": str(value)}, 
             "value": str(value)
         })
     
@@ -249,7 +249,7 @@ def get_row_limit_dropdown_element(data_size=None):
         "type": "static_select",
         "placeholder": {
             "type": "plain_text",
-            "text": "Rows to show"
+            "text": "Rows"
         },
         "options": options,
         "initial_option": initial_option,
@@ -643,7 +643,7 @@ def handle_show_sql_query(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text="The SQL query is already displayed in the message above.",
-            thread_ts=message_ts,
+
             ephemeral=True
         )
         return
@@ -663,7 +663,7 @@ def handle_show_sql_query(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text=f"An error occurred while displaying the query: {e}",
-            thread_ts=message_ts
+
         )
 
 # Action handler for Row Limit dropdown
@@ -693,7 +693,7 @@ def handle_row_limit_change(ack, body, client):
             client.chat_postMessage(
                 channel=channel_id,
                 text="Sorry, the query data is no longer available. Please run your query again.",
-                thread_ts=message_ts,
+    
                 ephemeral=True
             )
             return
@@ -724,7 +724,7 @@ def handle_row_limit_change(ack, body, client):
             client.chat_postMessage(
                 channel=channel_id,
                 text=f"Error re-executing query: {e}",
-                thread_ts=message_ts,
+    
                 ephemeral=True
             )
             return
@@ -781,7 +781,7 @@ def handle_row_limit_change(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text=f"An error occurred while updating the row limit: {e}",
-            thread_ts=message_ts,
+
             ephemeral=True
         )
 
@@ -801,7 +801,7 @@ def handle_refine_query_button_click(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text="Sorry, I couldn't retrieve the last prompt to refine. Please try inputing another prompt.",
-            thread_ts=message_ts
+
         )
         return
 
@@ -832,7 +832,7 @@ def handle_refine_query_button_click(ack, body, client):
                     ]
                 }
             ],
-            thread_ts=message_ts
+
         )
 
         cur = CONN.cursor()
@@ -861,11 +861,32 @@ def handle_refine_query_button_click(ack, body, client):
         else:
             refinement_message = "No refinement suggestions received from Cortex."
 
-        client.chat_postMessage(
+        # Post the refinement result with action buttons
+        refine_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"**Bottom Line:** {refinement_message}"
+                }
+            },
+            get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=False)
+        ]
+        
+        refine_response = client.chat_postMessage(
             channel=channel_id,
             text=f"Bottom Line: {refinement_message}",
-            thread_ts=message_ts
+            blocks=refine_blocks
         )
+        
+        # Cache the original data for the refine message so buttons work
+        refine_message_ts = refine_response['ts']
+        if message_ts in global_dataframe_cache:
+            global_dataframe_cache[refine_message_ts] = global_dataframe_cache[message_ts]
+        if message_ts in global_sql_cache:
+            global_sql_cache[refine_message_ts] = global_sql_cache[message_ts]
+        if message_ts in global_original_dataframe_cache:
+            global_original_dataframe_cache[refine_message_ts] = global_original_dataframe_cache[message_ts]
 
     except Exception as e:
         error_info = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
@@ -873,7 +894,7 @@ def handle_refine_query_button_click(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text=f"An error occurred while trying to refine the prompt: {e}",
-            thread_ts=message_ts
+
         )
     finally:
         if 'cur' in locals() and cur:
@@ -899,7 +920,7 @@ def handle_render_chart_button_click(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text="Sorry, I couldn't retrieve the data for charting. The query might have expired or been cleared.",
-            thread_ts=message_ts
+
         )
         return
 
@@ -924,40 +945,31 @@ def handle_render_chart_button_click(ack, body, client):
         chart_img_url = select_and_plot_chart(df, client)
         
         if chart_img_url:
-            # First, update the original data message to remove the row count dropdown (doesn't make sense with charts)
-            try:
-                current_blocks = body['message']['blocks']
-                updated_blocks = []
-                
-                for block in current_blocks:
-                    # Replace the action buttons block with one that excludes the row count dropdown
-                    if block.get("type") == "actions":
-                        # This is the action buttons block - replace with chart-appropriate version (no row count dropdown)
-                        updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=False))
-                    else:
-                        updated_blocks.append(block)
-                
-                # Update the original message to remove row count dropdown
-                client.chat_update(
-                    channel=channel_id,
-                    ts=message_ts,
-                    blocks=updated_blocks,
-                    text="Query results (chart rendered below)"
-                )
-                
-            except Exception as update_error:
-                print(f"Warning: Could not update original message: {update_error}")
+            # Post chart with action buttons (but no record count dropdown)
+            chart_blocks = [
+                {
+                    "type": "image",
+                    "image_url": chart_img_url,
+                    "alt_text": "Generated Chart"
+                },
+                get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=False)
+            ]
             
-            # Then post the chart as a separate message
             chart_response = client.chat_postMessage(
                 channel=channel_id,
-                text=f"📊 Chart: {chart_img_url}"
+                text="Chart generated",
+                blocks=chart_blocks
             )
+            
+            # Cache the DataFrame for the chart message so buttons work
+            chart_message_ts = chart_response['ts']
+            global_dataframe_cache[chart_message_ts] = df
+            global_sql_cache[chart_message_ts] = global_sql_cache.get(message_ts)
+            global_original_dataframe_cache[chart_message_ts] = global_original_dataframe_cache.get(message_ts)
+            
             if DEBUG:
-                print("Chart posted successfully")
+                print("Chart posted successfully to main channel with action buttons (no record count)")
                 print(f"Chart message response: {chart_response.get('ok', False)}")
-                print(f"Chart message has blocks: {bool(chart_response.get('message', {}).get('blocks'))}")
-                print(f"Chart message has attachments: {bool(chart_response.get('message', {}).get('attachments'))}")
         else:
             client.chat_postMessage(
                 channel=channel_id,
@@ -985,7 +997,7 @@ def handle_download_data_button_click(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text="Sorry, I couldn't retrieve the data for download. The query might have expired or been cleared.",
-            thread_ts=message_ts
+
         )
         return
 
@@ -1016,7 +1028,7 @@ def handle_download_data_button_click(ack, body, client):
                     ]
                 }
             ],
-            thread_ts=message_ts
+
         )
 
         # Re-execute the SQL query to get the data
@@ -1033,7 +1045,7 @@ def handle_download_data_button_click(ack, body, client):
             client.chat_postMessage(
                 channel=channel_id,
                 text="The query returned no data to download.",
-                thread_ts=message_ts
+    
             )
             return
 
@@ -1045,7 +1057,7 @@ def handle_download_data_button_click(ack, body, client):
         file_name = f"query_results_{int(time.time())}.csv"
 
         if DEBUG:
-            print(f"DEBUG: Attempting to upload file '{file_name}' to channel '{channel_id}' with thread_ts '{message_ts}'")
+            print(f"DEBUG: Attempting to upload file '{file_name}' to channel '{channel_id}'")
 
         # Capture the response from Slack API for more detailed debugging
         upload_response = client.files_upload_v2(
@@ -1053,7 +1065,7 @@ def handle_download_data_button_click(ack, body, client):
             file=csv_buffer.getvalue().encode('utf-8'), # Encode to bytes for upload
             filename=file_name,
             title="Query Results Data",
-            thread_ts=message_ts,
+
             initial_comment=f"Here is the data generated by your query: `{file_name}`"
         )
         if DEBUG:
@@ -1062,6 +1074,34 @@ def handle_download_data_button_click(ack, body, client):
                 print(f"DEBUG: File uploaded successfully: {upload_response.get('file', {}).get('permalink')}")
             else:
                 print(f"DEBUG: File upload failed: {upload_response.get('error')}")
+        
+        # Post a follow-up message with action buttons after successful download
+        if upload_response.get('ok'):
+            download_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"✅ *Data download complete!* Your file `{file_name}` has been uploaded above."
+                    }
+                },
+                get_action_buttons_block(include_show_sql=True, data_size=len(df), include_row_limit=True)
+            ]
+            
+            download_response = client.chat_postMessage(
+                channel=channel_id,
+                text="Data download complete",
+                blocks=download_blocks
+            )
+            
+            # Cache the DataFrame for the download message so buttons work
+            download_message_ts = download_response['ts']
+            global_dataframe_cache[download_message_ts] = df
+            global_sql_cache[download_message_ts] = sql_query
+            global_original_dataframe_cache[download_message_ts] = global_original_dataframe_cache.get(message_ts, df)
+            
+            if DEBUG:
+                print(f"DEBUG: Posted download completion message with buttons")
 
 
     except Exception as e:
@@ -1070,7 +1110,7 @@ def handle_download_data_button_click(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text=f"An error occurred while trying to download the data: {e}",
-            thread_ts=message_ts
+
         )
 
 
@@ -1094,19 +1134,18 @@ def handle_clear_all_filters_button_click(ack, body, client):
             client.chat_postMessage(
                 channel=channel_id,
                 text="Sorry, I couldn't retrieve the original data. The query might have expired or been cleared.",
-                thread_ts=message_ts
+    
             )
             return
         
         # Create filtered result message with original (unfiltered) data
         result_blocks = create_filtered_result_message(df, [], len(df))  # Empty filters list means "no filters applied"
         
-        # Post the original results as a new message in thread
+        # Post the original results as a new message in main channel
         response = client.chat_postMessage(
             channel=channel_id,
             text="Here are your original results (all filters cleared):",
-            blocks=result_blocks,
-            thread_ts=message_ts
+            blocks=result_blocks
         )
         
         # Cache the original DataFrame with the new message timestamp
@@ -1144,7 +1183,7 @@ def handle_filter_data_button_click(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text="Sorry, I couldn't retrieve the original data for filtering. The query might have expired or been cleared.",
-            thread_ts=message_ts
+
         )
         return
     
@@ -1160,7 +1199,7 @@ def handle_filter_data_button_click(ack, body, client):
         client.chat_postMessage(
             channel=channel_id,
             text=f"An error occurred while opening the filter dialog: {e}",
-            thread_ts=message_ts
+
         )
 
 
@@ -1206,14 +1245,23 @@ def handle_filter_modal_submission(ack, body, client, view):
         # Create filtered result message
         result_blocks = create_filtered_result_message(filtered_df, applied_filters, len(df))
         
-        # Post the filtered results as a new message in thread
+        if DEBUG:
+            print(f"Filter Modal: Created result blocks, length: {len(result_blocks) if result_blocks else 'None'}")
+            print(f"Filter Modal: Channel ID: {channel_id}")
+        
+        # Post the filtered results as a new message in main channel
         if channel_id:
+            if DEBUG:
+                print("Filter Modal: About to post filtered results message")
+            
             response = client.chat_postMessage(
                 channel=channel_id,
-                text="Here are your filtered results:",
-                blocks=result_blocks,
-                thread_ts=message_ts
+                text="Here are your filtered results:" if applied_filters else "Here are your original results (no filters applied):",
+                blocks=result_blocks
             )
+            
+            if DEBUG:
+                print(f"Filter Modal: Posted message with timestamp: {response.get('ts')}")
             
             # Cache the filtered DataFrame and original SQL with the new message timestamp
             new_message_ts = response['ts']

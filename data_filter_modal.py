@@ -168,6 +168,30 @@ def create_filter_modal(df, message_ts, channel_id=None):
             "optional": True
         })
     
+    # Order By filter for sorting results
+    # Create options for all columns plus ascending/descending
+    order_by_options = []
+    for col in df.columns:
+        col_display = col.replace('_', ' ').title()
+        order_by_options.extend([
+            {"text": {"type": "plain_text", "text": f"{col_display} ↑"}, "value": f"{col}_asc"},
+            {"text": {"type": "plain_text", "text": f"{col_display} ↓"}, "value": f"{col}_desc"}
+        ])
+    
+    if order_by_options:
+        blocks.append({
+            "type": "input",
+            "block_id": "order_by_block",
+            "label": {"type": "plain_text", "text": "Order By"},
+            "element": {
+                "type": "static_select",
+                "action_id": "order_by_select",
+                "placeholder": {"type": "plain_text", "text": "Select sort order"},
+                "options": order_by_options
+            },
+            "optional": True
+        })
+    
     # Top N filter for limiting results
     blocks.append({
         "type": "input",
@@ -324,6 +348,23 @@ def apply_pandas_filters(df, filter_values):
                 filtered_df = filtered_df[filtered_df[col] <= max_threshold]
                 applied_filters.append(f"{col} <= {max_threshold:,.0f}")
     
+    # Apply order by sorting
+    order_by = filter_values.get('order_by_select')
+    if order_by and 'value' in order_by:
+        order_value = order_by['value']
+        if '_asc' in order_value:
+            column = order_value.replace('_asc', '')
+            if column in filtered_df.columns:
+                filtered_df = filtered_df.sort_values(by=column, ascending=True)
+                col_display = column.replace('_', ' ').title()
+                applied_filters.append(f"Ordered by {col_display} (ascending)")
+        elif '_desc' in order_value:
+            column = order_value.replace('_desc', '')
+            if column in filtered_df.columns:
+                filtered_df = filtered_df.sort_values(by=column, ascending=False)
+                col_display = column.replace('_', ' ').title()
+                applied_filters.append(f"Ordered by {col_display} (descending)")
+    
     # Apply top N limit
     top_n = filter_values.get('top_n')
     if top_n:
@@ -351,7 +392,12 @@ def extract_filter_values_from_modal(view_state):
             elif action_id == 'end_date':
                 filter_values['end_date'] = action_data.get('selected_date')
             elif action_id.endswith('_select'):
-                filter_values[action_id] = action_data.get('selected_options', [])
+                if action_id == 'order_by_select':
+                    # Single select for order by
+                    filter_values[action_id] = action_data.get('selected_option')
+                else:
+                    # Multi select for other filters
+                    filter_values[action_id] = action_data.get('selected_options', [])
             elif action_id.endswith('_min_threshold') or action_id.endswith('_max_threshold'):
                 filter_values[action_id] = action_data.get('value')
             elif action_id.endswith('_threshold'):  # Keep for backward compatibility
