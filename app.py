@@ -37,11 +37,11 @@ load_dotenv()
 # All query results will be filtered based on this user's access level and hierarchy
 
 # Choose one of these users to demonstrate different access levels (PURE HIERARCHY):
-#CURRENT_USER_EMAIL = "sarah.johnson@company.com"    # 1. CRO (TOP) - Reports to: NULL - Can see ALL data
+CURRENT_USER_EMAIL = "sarah.johnson@company.com"    # 1. CRO (TOP) - Reports to: NULL - Can see ALL data
 # CURRENT_USER_EMAIL = "michael.chen@company.com"     # 2. VP Sales - Reports to: Sarah Johnson - Can see West region  
 # CURRENT_USER_EMAIL = "robert.wilson@company.com"    # 3. Regional Manager - Reports to: Michael Chen - Can see West Coast region
 # CURRENT_USER_EMAIL = "patricia.kim@company.com"     # 4. Sales Manager - Reports to: Robert Wilson - Can see California North team
-CURRENT_USER_EMAIL = "addison.wells@company.com"    # 5. Sales Rep (BOTTOM) - Reports to: Patricia Kim - Can see only own data
+# CURRENT_USER_EMAIL = "addison.wells@company.com"    # 5. Sales Rep (BOTTOM) - Reports to: Patricia Kim - Can see only own data
 # =============================================================================
 
 # --- Environment Variables ---
@@ -87,6 +87,8 @@ ROW_LIMIT_DROPDOWN_ACTION_ID = "row_limit_select"
 
 # Global variable to store the last user prompt
 last_user_prompt_global = ""
+
+
 
 # Constants for Snowflake stored procedure parameters
 SNOWFLAKE_STAGE_PATH = '@"SLACK_SALES_DEMO"."SLACK_SCHEMA"."SLACK_SEMANTIC_MODELS"'
@@ -203,26 +205,28 @@ def background_refinement_analysis(user_prompt, message_ts, channel_id, app_clie
     import time
     
     try:
-        # Wait for initial results to settle
-        time.sleep(3)
+        # No delay needed - run immediately
         
         if DEBUG:
             print(f"🔍 Starting background refinement analysis for: '{user_prompt}'")
         
-        # Call the existing refine query procedure
+        # Call the existing refine query procedure (optimized)
         cur = CONN.cursor()
-        escaped_stage_path = SNOWFLAKE_STAGE_PATH.replace("'", "''")
-        escaped_user_prompt = user_prompt.replace("'", "''")
-        
-        sql_call_formatted = (
-            f"CALL {DATABASE}.{SCHEMA}.REFINE_QUERY("
-            f"'{escaped_stage_path}', "
-            f"'{SNOWFLAKE_FILE_NAME}', "
-            f"'{escaped_user_prompt}')"
-        )
-        
-        cur.execute(sql_call_formatted)
-        result = cur.fetchone()
+        try:
+            escaped_stage_path = SNOWFLAKE_STAGE_PATH.replace("'", "''")
+            escaped_user_prompt = user_prompt.replace("'", "''")
+            
+            sql_call_formatted = (
+                f"CALL {DATABASE}.{SCHEMA}.REFINE_QUERY("
+                f"'{escaped_stage_path}', "
+                f"'{SNOWFLAKE_FILE_NAME}', "
+                f"'{escaped_user_prompt}')"
+            )
+            
+            cur.execute(sql_call_formatted)
+            result = cur.fetchone()
+        finally:
+            cur.close()  # Ensure cursor is closed immediately
         
         if result:
             refinement_message = result[0]
@@ -263,23 +267,28 @@ def add_smart_refinement_button(message_ts, channel_id, refinement_suggestion, a
             
         current_blocks = message_response['messages'][0].get('blocks', [])
         
-        # Add the smart refinement section
-        refinement_block = {
+        # Add the smart refinement section with button at the end
+        refinement_text_block = {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": f"💡 *Suggested refinement:* {refinement_suggestion}"
-            },
-            "accessory": {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Prompt Warning!"},
-                "style": "danger",  # Red button
-                "action_id": REFINE_QUERY_BUTTON_ACTION_ID
             }
         }
         
-        # Update the message with the new refinement block
-        updated_blocks = current_blocks + [refinement_block]
+        refinement_button_block = {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Prompt Warning!"},
+                    "style": "danger"  # Red button - no action_id makes it non-functional
+                }
+            ]
+        }
+        
+        # Update the message with the new refinement blocks
+        updated_blocks = current_blocks + [refinement_text_block, refinement_button_block]
         
         app_client.chat_update(
             channel=channel_id,
@@ -293,6 +302,36 @@ def add_smart_refinement_button(message_ts, channel_id, refinement_suggestion, a
     except Exception as e:
         if DEBUG:
             print(f"❌ Error adding smart refinement button: {e}")
+
+# --- Action Button Functions ---
+
+
+
+def get_row_limit_dropdown_element(data_size=None):
+    """Create row limit dropdown element"""
+    options = []
+    valid_options = [10, 25, 50, 100, 250, 500]
+    
+    if data_size:
+        valid_options = [opt for opt in valid_options if opt <= data_size * 2]
+        if data_size not in valid_options:
+            valid_options.append(data_size)
+    
+    for value in sorted(set(valid_options)):
+        options.append({
+            "text": {"type": "plain_text", "text": str(value)},
+            "value": str(value)
+        })
+    
+    initial_option = {"text": {"type": "plain_text", "text": "10"}, "value": "10"}
+    
+    return {
+        "type": "static_select",
+        "placeholder": {"type": "plain_text", "text": "Rows"},
+        "options": options,
+        "initial_option": initial_option,
+        "action_id": ROW_LIMIT_DROPDOWN_ACTION_ID
+    }
 
 # --- Slack Message Handlers ---
 
@@ -386,21 +425,7 @@ def get_sql_code_block(sql_query):
         ]
     }
 
-# Helper for Refine Query button element
-def get_refine_query_button_element():
-    """
-    Returns the Slack Block Kit element for the "Refine Prompt" button.
-    """
-    return {
-        "type": "button",
-        "text": {
-            "type": "plain_text",
-            "text": "Refine Prompt",
-            "emoji": True
-        },
-        "style": "primary",
-        "action_id": REFINE_QUERY_BUTTON_ACTION_ID
-    }
+
 
 # Helper for Show SQL Query button element
 def get_show_sql_query_button_element():
@@ -519,10 +544,10 @@ def get_action_buttons_block(include_show_sql=True, data_size=None, include_row_
 
     elements.extend([
         get_filter_data_button_element(),
-        get_refine_query_button_element(),
         get_render_chart_button_element(),
         get_download_data_button_element()
     ])
+
 
     return {
         "type": "actions",
