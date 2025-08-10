@@ -57,6 +57,7 @@ SQL_SHOW_BUTTON_ACTION_ID = "show_full_sql_query_button"
 REFINE_QUERY_BUTTON_ACTION_ID = "refine_query_button"
 RENDER_CHART_BUTTON_ACTION_ID = "render_chart_button"
 DOWNLOAD_DATA_BUTTON_ACTION_ID = "download_data_button"
+ROW_LIMIT_DROPDOWN_ACTION_ID = "row_limit_select"
 
 # Global variable to store the last user prompt
 last_user_prompt_global = ""
@@ -190,6 +191,59 @@ def get_show_sql_query_button_element():
         "action_id": SQL_SHOW_BUTTON_ACTION_ID
     }
 
+# Helper for Row Limit dropdown element
+def get_row_limit_dropdown_element(data_size=None):
+    """
+    Returns the Slack Block Kit element for the row limit dropdown.
+    Always defaults to 10 rows and never shows more options than total rows.
+    """
+    # Always default to 10 rows
+    default_value = "10"
+    
+    # Base options (always include 10)
+    base_options = [10, 25, 50, 100, 200]
+    
+    # Filter options to never exceed data size, but include appropriate larger options
+    if data_size is not None:
+        valid_options = [opt for opt in base_options if opt <= data_size]
+        # Always include at least 10 (or data_size if smaller)
+        if not valid_options:
+            valid_options = [min(10, data_size)]
+        elif 10 not in valid_options and data_size >= 10:
+            valid_options.insert(0, 10)
+        
+        # Add the actual data size as an option if it's not already covered
+        if data_size > max(valid_options) and data_size <= 200:
+            valid_options.append(data_size)
+    else:
+        valid_options = base_options
+    
+    # Create option objects
+    options = []
+    for value in sorted(set(valid_options)):
+        options.append({
+            "text": {"type": "plain_text", "text": f"{value} rows"}, 
+            "value": str(value)
+        })
+    
+    # Ensure default exists in options
+    if default_value not in [opt["value"] for opt in options]:
+        default_value = options[0]["value"]
+    
+    # Find the default option
+    initial_option = next((opt for opt in options if opt["value"] == default_value), options[0])
+    
+    return {
+        "type": "static_select",
+        "placeholder": {
+            "type": "plain_text",
+            "text": "Rows to show"
+        },
+        "options": options,
+        "initial_option": initial_option,
+        "action_id": ROW_LIMIT_DROPDOWN_ACTION_ID
+    }
+
 # Helper for Render Chart button element
 def get_render_chart_button_element():
     """
@@ -223,11 +277,15 @@ def get_download_data_button_element():
     }
 
 # NEW: Combined actions block for all four buttons
-def get_action_buttons_block(include_show_sql=True): # MODIFIED: Added include_show_sql parameter
+def get_action_buttons_block(include_show_sql=True, data_size=None): # MODIFIED: Added data_size parameter
     """
     Returns a Slack Block Kit 'actions' block containing desired buttons on the same row.
     """
     elements = []
+    
+    # Add row limit dropdown first (left-most position)
+    elements.append(get_row_limit_dropdown_element(data_size))
+    
     if include_show_sql: # Only add if requested
         elements.append(get_show_sql_query_button_element())
 
@@ -243,6 +301,66 @@ def get_action_buttons_block(include_show_sql=True): # MODIFIED: Added include_s
     }
 
 # --- Response Display and Charting Logic ---
+
+def _get_safe_table_text(df, truncated_message="", requested_rows=None):
+    """
+    Get table text that's safe for Slack's character limits.
+    Prioritizes showing the requested number of rows, only reduces if absolutely necessary.
+    """
+    # Start with requested rows, or default to 10 if not specified
+    if requested_rows is not None:
+        max_rows = min(len(df), requested_rows)
+    else:
+        max_rows = min(len(df), 10)
+    
+    # First, try the exact requested number of rows
+    display_df = df.head(max_rows)
+    base_table_text = display_df.to_string(index=False)
+    
+    # Calculate space needed for row counter message
+    if max_rows < len(df):
+        row_message = f"\n\n(Showing {max_rows} of {len(df)} rows. Use dropdown to see more.)"
+    else:
+        row_message = ""
+    
+    full_text = base_table_text + truncated_message + row_message
+    
+    # If the requested rows fit within the limit, return them!
+    if len(full_text) <= 2800:
+        return full_text
+    
+    # Only reduce if absolutely necessary and the request was large
+    if requested_rows and requested_rows > 25:
+        # For large requests that don't fit, try half the requested amount
+        fallback_rows = max(10, requested_rows // 2)
+        display_df = df.head(fallback_rows)
+        base_table_text = display_df.to_string(index=False)
+        row_message = f"\n\n(Showing {fallback_rows} of {len(df)} rows - table too wide for {requested_rows} rows.)"
+        full_text = base_table_text + truncated_message + row_message
+        
+        if len(full_text) <= 2800:
+            return full_text
+    
+    # Last resort: reduce to a safe minimum
+    safe_rows = 10
+    while safe_rows > 3:
+        display_df = df.head(safe_rows)
+        base_table_text = display_df.to_string(index=False)
+        row_message = f"\n\n(Showing {safe_rows} of {len(df)} rows - table too wide for full display.)"
+        full_text = base_table_text + truncated_message + row_message
+        
+        if len(full_text) <= 2800:
+            return full_text
+        
+        safe_rows -= 2
+    
+    # If even 3 rows is too long (very wide table), truncate the text
+    table_text = df.head(3).to_string(index=False)
+    if len(table_text) > 2700:
+        table_text = table_text[:2700] + "..."
+    table_text += f"\n\n(Table truncated for Slack display. Use dropdown to adjust.)"
+    
+    return table_text
 
 def display_agent_response(content, say, app_client, original_body):
     """
@@ -284,7 +402,15 @@ def display_agent_response(content, say, app_client, original_body):
                             if DEBUG:
                                 print(f"Converted column '{df.columns[i]}' to numeric where possible.")
                     elif pd.api.types.is_numeric_dtype(df.iloc[:, i]):
-                        df[df.columns[i]] = df[df.columns[i]].astype(float)
+                        # Only convert to float if the column contains decimal values
+                        if not df[df.columns[i]].apply(lambda x: x == int(x) if pd.notna(x) else True).all():
+                            df[df.columns[i]] = df[df.columns[i]].astype(float)
+                            if DEBUG:
+                                print(f"Kept column '{df.columns[i]}' as float (contains decimals)")
+                        else:
+                            df[df.columns[i]] = df[df.columns[i]].astype(int)
+                            if DEBUG:
+                                print(f"Converted column '{df.columns[i]}' to int (whole numbers only)")
                 except Exception as e:
                     if DEBUG:
                         print(f"Could not convert column '{df.columns[i]}' to numeric: {e}")
@@ -336,12 +462,8 @@ def display_agent_response(content, say, app_client, original_body):
                 ]
             })
         else:
-            # Limit displayed rows and indicate truncation
-            original_rows = len(df)
-            display_df = df.head(10)
-            truncated_message = ""
-            if original_rows > 10:
-                truncated_message = "\n\n(Results truncated to 10 lines.)"
+            # Let the safe table text function handle row limiting
+            display_df = df  # Pass full dataframe
 
             # Display DataFrame as Text Table
             final_blocks.append({
@@ -364,7 +486,7 @@ def display_agent_response(content, say, app_client, original_body):
                         "elements": [
                             {
                                 "type": "text",
-                                "text": f"{display_df.to_string()}{truncated_message}"
+                                "text": _get_safe_table_text(display_df, "", 10)
                             }
                         ]
                     }
@@ -372,7 +494,7 @@ def display_agent_response(content, say, app_client, original_body):
             })
 
         # Add the combined action buttons block, including Show SQL Query initially.
-        final_blocks.append(get_action_buttons_block(include_show_sql=True)) # Pass True to include Show SQL
+        final_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=len(df))) # Pass data size for smart default
 
         # Send the initial message and capture its timestamp (ts)
         try:
@@ -449,7 +571,7 @@ def handle_show_sql_query(ack, body, client):
 
     for block in current_blocks:
         # Filter out the existing action buttons block
-        if block.get("type") == "actions" and any(e.get('action_id') in [REFINE_QUERY_BUTTON_ACTION_ID, SQL_SHOW_BUTTON_ACTION_ID, RENDER_CHART_BUTTON_ACTION_ID, DOWNLOAD_DATA_BUTTON_ACTION_ID] for e in block['elements']):
+        if block.get("type") == "actions" and any(e.get('action_id') in [REFINE_QUERY_BUTTON_ACTION_ID, SQL_SHOW_BUTTON_ACTION_ID, RENDER_CHART_BUTTON_ACTION_ID, DOWNLOAD_DATA_BUTTON_ACTION_ID, ROW_LIMIT_DROPDOWN_ACTION_ID] for e in block['elements']):
             # This is our action buttons block, we will re-add a modified version later
             continue
         # Check if the SQL is already in the message (e.g., if button was clicked twice)
@@ -474,7 +596,7 @@ def handle_show_sql_query(ack, body, client):
         return
 
     # Re-add the action buttons, but this time, EXCLUDE the "Show SQL Query" button
-    updated_blocks.append(get_action_buttons_block(include_show_sql=False)) # Pass False to exclude Show SQL
+    updated_blocks.append(get_action_buttons_block(include_show_sql=False, data_size=None)) # Pass False to exclude Show SQL
 
     try:
         client.chat_update(
@@ -489,6 +611,105 @@ def handle_show_sql_query(ack, body, client):
             channel=channel_id,
             text=f"An error occurred while displaying the query: {e}",
             thread_ts=message_ts
+        )
+
+# Action handler for Row Limit dropdown
+@app.action(ROW_LIMIT_DROPDOWN_ACTION_ID)
+def handle_row_limit_change(ack, body, client):
+    """
+    Handles the row limit dropdown selection change.
+    Updates the displayed table with the new row limit.
+    """
+    ack()
+    
+    message_ts = body['message']['ts']
+    channel_id = body['channel']['id']
+    selected_limit = int(body['actions'][0]['selected_option']['value'])
+    
+    # Retrieve the SQL query from the cache
+    sql_query = global_sql_cache.get(message_ts)
+    if not sql_query:
+        client.chat_postMessage(
+            channel=channel_id,
+            text="Sorry, the query data is no longer available. Please run your query again.",
+            thread_ts=message_ts,
+            ephemeral=True
+        )
+        return
+    
+    try:
+        # Re-execute the SQL query
+        df = pd.read_sql(sql_query, CONN)
+        
+        # Apply the same type conversion logic as the initial display
+        if len(df.columns) >= 2:
+            for i in range(len(df.columns)):
+                try:
+                    if pd.api.types.is_object_dtype(df.iloc[:, i]) or pd.api.types.is_string_dtype(df.iloc[:, i]):
+                        temp_col = pd.to_numeric(df.iloc[:, i], errors='coerce')
+                        if not temp_col.isna().all() and (temp_col.notna().sum() / len(temp_col) > 0.5):
+                            df[df.columns[i]] = temp_col
+                    elif pd.api.types.is_numeric_dtype(df.iloc[:, i]):
+                        # Only convert to float if the column contains decimal values
+                        if not df[df.columns[i]].apply(lambda x: x == int(x) if pd.notna(x) else True).all():
+                            df[df.columns[i]] = df[df.columns[i]].astype(float)
+                        else:
+                            df[df.columns[i]] = df[df.columns[i]].astype(int)
+                except Exception as e:
+                    pass  # Silently continue if conversion fails
+        
+        # Apply the selected row limit
+        df_limited = df.head(selected_limit)
+        
+        # Get current blocks and rebuild with new data
+        current_blocks = body['message']['blocks']
+        updated_blocks = []
+        
+        for block in current_blocks:
+            # Skip the existing table block
+            if block.get("type") == "section" and block.get("text", {}).get("text", "").startswith("```"):
+                continue
+            # Skip the existing action buttons block
+            elif block.get("type") == "actions":
+                continue
+            else:
+                updated_blocks.append(block)
+        
+        # Add the new table block with limited rows using safe text function
+        if len(df) > selected_limit:
+            truncated_message = f"\n(Showing {selected_limit} of {len(df)} total rows)"
+        else:
+            truncated_message = ""
+        
+        safe_table_content = _get_safe_table_text(df_limited, truncated_message, selected_limit)
+        table_text = f"```\n{safe_table_content}\n```"
+        
+        updated_blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": table_text
+            }
+        })
+        
+        # Re-add the action buttons with updated dropdown selection
+        updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=len(df)))
+        
+        # Update the message
+        client.chat_update(
+            channel=channel_id,
+            ts=message_ts,
+            blocks=updated_blocks,
+            text="Query results updated."
+        )
+        
+    except Exception as e:
+        print(f"Error updating row limit: {e}")
+        client.chat_postMessage(
+            channel=channel_id,
+            text=f"An error occurred while updating the row limit: {e}",
+            thread_ts=message_ts,
+            ephemeral=True
         )
 
 # Action handler for "Refine Query" button
