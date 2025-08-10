@@ -183,18 +183,40 @@ def create_filter_modal(df, message_ts, channel_id=None):
     
     # Add Clear All Filters button
     blocks.append({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn", 
+            "text": " "
+        }
+    })
+    
+    blocks.append({
         "type": "actions",
         "elements": [
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "Clear All Filters"},
-                "action_id": "clear_all_filters_button",
-                "style": "danger"
+                "text": {
+                    "type": "plain_text",
+                    "text": "Clear All Filters"
+                },
+                "style": "danger",
+                "action_id": "clear_all_filters_button"
             }
         ]
     })
     
-    return {
+    # Add instruction text for clearing filters
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": "💡 *Tip:* Leave all fields empty and click 'Apply Filters' to clear all filters and return to original results."
+            }
+        ]
+    })
+    
+    modal = {
         "type": "modal",
         "callback_id": FILTER_MODAL_CALLBACK_ID,
         "title": {"type": "plain_text", "text": "Filter Query Results"},
@@ -203,6 +225,12 @@ def create_filter_modal(df, message_ts, channel_id=None):
         "private_metadata": f"{message_ts}|{channel_id}" if channel_id else message_ts,  # Store both message_ts and channel_id
         "blocks": blocks
     }
+    
+    print(f"DEBUG: Modal created with {len(blocks)} blocks")
+    for i, block in enumerate(blocks):
+        print(f"DEBUG: Block {i}: {block.get('type', 'unknown')}")
+    
+    return modal
 
 
 def apply_pandas_filters(df, filter_values):
@@ -438,7 +466,7 @@ def create_filtered_result_message(filtered_df, applied_filters, original_count)
                     "elements": [
                         {
                             "type": "text",
-                            "text": _get_safe_table_text(filtered_df, "", 10)
+                            "text": _get_safe_table_text(filtered_df, "", min(len(filtered_df), 25))
                         }
                     ]
                 }

@@ -200,6 +200,12 @@ def plot_bar_chart(df, app_client):
     plt.ylabel(y_col, color=TEXT_COLOR, fontsize=LABEL_FONTSIZE)
     plt.title(f'{y_col} by {x_col}', color=TEXT_COLOR, fontsize=TITLE_FONTSIZE)
     plt.xticks(rotation=45, ha='right', color=TEXT_COLOR, fontsize=TICK_FONTSIZE)
+    
+    # Format y-axis for currency if it's a money column
+    if any(keyword in y_col.upper() for keyword in ['SALES', 'AMOUNT', 'REVENUE', 'TOTAL', 'COST', 'PRICE', 'VALUE']):
+        ax = plt.gca()
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
+    
     plt.yticks(color=TEXT_COLOR, fontsize=TICK_FONTSIZE)
     plt.grid(axis='y', linestyle='--', alpha=0.0, color=GRID_COLOR) # Removed y-axis grid for cleaner look
     plt.gca().set_facecolor(BACKGROUND_COLOR)
@@ -240,6 +246,12 @@ def plot_line_chart(df, x_col, y_col, app_client):
     plt.ylabel(y_col, color=TEXT_COLOR, fontsize=LABEL_FONTSIZE)
     plt.title(f'{y_col} Over Time', color=TEXT_COLOR, fontsize=TITLE_FONTSIZE)
     plt.xticks(rotation=45, ha='right', color=TEXT_COLOR, fontsize=TICK_FONTSIZE)
+    
+    # Format y-axis for currency if it's a money column
+    if any(keyword in y_col.upper() for keyword in ['SALES', 'AMOUNT', 'REVENUE', 'TOTAL', 'COST', 'PRICE', 'VALUE']):
+        ax = plt.gca()
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
+    
     plt.yticks(color=TEXT_COLOR, fontsize=TICK_FONTSIZE)
     plt.grid(True, linestyle='--', alpha=0.7, color=GRID_COLOR)
     plt.gca().set_facecolor(BACKGROUND_COLOR)
@@ -294,6 +306,12 @@ def plot_multi_line_chart(df, x_col, y_col, group_col, app_client):
     plt.ylabel(y_col, color=TEXT_COLOR, fontsize=LABEL_FONTSIZE)
     plt.title(f'{y_col} Over Time by {group_col}', color=TEXT_COLOR, fontsize=TITLE_FONTSIZE)
     plt.xticks(rotation=45, ha='right', color=TEXT_COLOR, fontsize=TICK_FONTSIZE)
+    
+    # Format y-axis for currency if it's a money column
+    if any(keyword in y_col.upper() for keyword in ['SALES', 'AMOUNT', 'REVENUE', 'TOTAL', 'COST', 'PRICE', 'VALUE']):
+        ax = plt.gca()
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
+    
     plt.yticks(color=TEXT_COLOR, fontsize=TICK_FONTSIZE)
     plt.legend(title=group_col, bbox_to_anchor=(1.02, 1), loc='upper left', frameon=False, fontsize=LEGEND_FONTSIZE, title_fontsize=LABEL_FONTSIZE, labelcolor=TEXT_COLOR)
     

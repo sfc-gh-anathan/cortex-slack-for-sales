@@ -64,6 +64,7 @@ app = App(token=SLACK_BOT_TOKEN)
 # to handle multiple concurrent users and bot restarts.
 global_sql_cache = {}
 global_dataframe_cache = {}  # Cache for DataFrames used in filtering
+global_original_dataframe_cache = {}  # Cache for original unfiltered DataFrames
 SQL_SHOW_BUTTON_ACTION_ID = "show_full_sql_query_button"
 REFINE_QUERY_BUTTON_ACTION_ID = "refine_query_button"
 RENDER_CHART_BUTTON_ACTION_ID = "render_chart_button"
@@ -288,14 +289,15 @@ def get_download_data_button_element():
     }
 
 # NEW: Combined actions block for all four buttons
-def get_action_buttons_block(include_show_sql=True, data_size=None): # MODIFIED: Added data_size parameter
+def get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=True): # MODIFIED: Added include_row_limit parameter
     """
     Returns a Slack Block Kit 'actions' block containing desired buttons on the same row.
     """
     elements = []
     
-    # Add row limit dropdown first (left-most position)
-    elements.append(get_row_limit_dropdown_element(data_size))
+    # Add row limit dropdown first (left-most position) - only for filtered results, not charts
+    if include_row_limit:
+        elements.append(get_row_limit_dropdown_element(data_size))
     
     if include_show_sql: # Only add if requested
         elements.append(get_show_sql_query_button_element())
@@ -557,6 +559,7 @@ def display_agent_response(content, say, app_client, original_body):
             # Store the full SQL query and DataFrame in the global cache, keyed by message_ts
             global_sql_cache[message_ts] = sql
             global_dataframe_cache[message_ts] = df
+            global_original_dataframe_cache[message_ts] = df.copy()  # Store original unfiltered data
 
         except Exception as e:
             print(f"Error posting initial message to Slack: {e}")
@@ -676,37 +679,57 @@ def handle_row_limit_change(ack, body, client):
     channel_id = body['channel']['id']
     selected_limit = int(body['actions'][0]['selected_option']['value'])
     
-    # Retrieve the SQL query from the cache
-    sql_query = global_sql_cache.get(message_ts)
-    if not sql_query:
-        client.chat_postMessage(
-            channel=channel_id,
-            text="Sorry, the query data is no longer available. Please run your query again.",
-            thread_ts=message_ts,
-            ephemeral=True
-        )
-        return
+    # Try to get DataFrame from cache first, then fall back to SQL
+    df = global_dataframe_cache.get(message_ts)
+    
+    if df is not None:
+        # We have a cached DataFrame (probably filtered results)
+        if DEBUG:
+            print(f"Row limit change: Using cached DataFrame with {len(df)} rows")
+    else:
+        # Fall back to SQL query for original results
+        sql_query = global_sql_cache.get(message_ts)
+        if not sql_query:
+            client.chat_postMessage(
+                channel=channel_id,
+                text="Sorry, the query data is no longer available. Please run your query again.",
+                thread_ts=message_ts,
+                ephemeral=True
+            )
+            return
+        
+        try:
+            # Re-execute the SQL query
+            df = pd.read_sql(sql_query, CONN)
+            if DEBUG:
+                print(f"Row limit change: Re-executed SQL query, got {len(df)} rows")
+            
+            # Apply the same type conversion logic as the initial display
+            if len(df.columns) >= 2:
+                for i in range(len(df.columns)):
+                    try:
+                        if pd.api.types.is_object_dtype(df.iloc[:, i]) or pd.api.types.is_string_dtype(df.iloc[:, i]):
+                            temp_col = pd.to_numeric(df.iloc[:, i], errors='coerce')
+                            if not temp_col.isna().all() and (temp_col.notna().sum() / len(temp_col) > 0.5):
+                                df[df.columns[i]] = temp_col
+                        elif pd.api.types.is_numeric_dtype(df.iloc[:, i]):
+                            # Only convert to float if the column contains decimal values
+                            if not df[df.columns[i]].apply(lambda x: x == int(x) if pd.notna(x) else True).all():
+                                df[df.columns[i]] = df[df.columns[i]].astype(float)
+                            else:
+                                df[df.columns[i]] = df[df.columns[i]].astype(int)
+                    except Exception as e:
+                        pass  # Silently continue if conversion fails
+        except Exception as e:
+            client.chat_postMessage(
+                channel=channel_id,
+                text=f"Error re-executing query: {e}",
+                thread_ts=message_ts,
+                ephemeral=True
+            )
+            return
     
     try:
-        # Re-execute the SQL query
-        df = pd.read_sql(sql_query, CONN)
-        
-        # Apply the same type conversion logic as the initial display
-        if len(df.columns) >= 2:
-            for i in range(len(df.columns)):
-                try:
-                    if pd.api.types.is_object_dtype(df.iloc[:, i]) or pd.api.types.is_string_dtype(df.iloc[:, i]):
-                        temp_col = pd.to_numeric(df.iloc[:, i], errors='coerce')
-                        if not temp_col.isna().all() and (temp_col.notna().sum() / len(temp_col) > 0.5):
-                            df[df.columns[i]] = temp_col
-                    elif pd.api.types.is_numeric_dtype(df.iloc[:, i]):
-                        # Only convert to float if the column contains decimal values
-                        if not df[df.columns[i]].apply(lambda x: x == int(x) if pd.notna(x) else True).all():
-                            df[df.columns[i]] = df[df.columns[i]].astype(float)
-                        else:
-                            df[df.columns[i]] = df[df.columns[i]].astype(int)
-                except Exception as e:
-                    pass  # Silently continue if conversion fails
         
         # Apply the selected row limit
         df_limited = df.head(selected_limit)
@@ -881,31 +904,60 @@ def handle_render_chart_button_click(ack, body, client):
         return
 
     try:
-        # Get DataFrame - re-execute SQL to get fresh data every time to avoid size issues
-        df = pd.read_sql(sql_query, CONN)
+        # Get the current DataFrame (the data the user is looking at)
+        df = global_dataframe_cache.get(message_ts)
+        
+        if df is None:
+            client.chat_postMessage(
+                channel=channel_id,
+                text="❌ No data available for charting. The data may have expired."
+            )
+            return
         
         if DEBUG:
-            print(f"Chart: Fresh DataFrame shape: {df.shape}")
+            print(f"Chart: Using DataFrame with {len(df)} rows")
+            print(f"Chart: DataFrame shape: {df.shape}")
             print(f"Chart: DataFrame columns: {list(df.columns)}")
+            print(f"Chart: First few rows:\n{df.head()}")
 
         # Simple chart generation - use fallback method only for consistency
         chart_img_url = select_and_plot_chart(df, client)
         
         if chart_img_url:
-            # Post simple message with just chart - no complex blocks, no thread_ts inheritance
-            client.chat_postMessage(
+            # First, update the original data message to remove the row count dropdown (doesn't make sense with charts)
+            try:
+                current_blocks = body['message']['blocks']
+                updated_blocks = []
+                
+                for block in current_blocks:
+                    # Replace the action buttons block with one that excludes the row count dropdown
+                    if block.get("type") == "actions":
+                        # This is the action buttons block - replace with chart-appropriate version (no row count dropdown)
+                        updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=False))
+                    else:
+                        updated_blocks.append(block)
+                
+                # Update the original message to remove row count dropdown
+                client.chat_update(
+                    channel=channel_id,
+                    ts=message_ts,
+                    blocks=updated_blocks,
+                    text="Query results (chart rendered below)"
+                )
+                
+            except Exception as update_error:
+                print(f"Warning: Could not update original message: {update_error}")
+            
+            # Then post the chart as a separate message
+            chart_response = client.chat_postMessage(
                 channel=channel_id,
-                text="📊 Chart:",
-                attachments=[
-                    {
-                        "fallback": "Chart generated",
-                        "image_url": chart_img_url,
-                        "color": "good"
-                    }
-                ]
+                text=f"📊 Chart: {chart_img_url}"
             )
             if DEBUG:
                 print("Chart posted successfully")
+                print(f"Chart message response: {chart_response.get('ok', False)}")
+                print(f"Chart message has blocks: {bool(chart_response.get('message', {}).get('blocks'))}")
+                print(f"Chart message has attachments: {bool(chart_response.get('message', {}).get('attachments'))}")
         else:
             client.chat_postMessage(
                 channel=channel_id,
@@ -1036,8 +1088,8 @@ def handle_clear_all_filters_button_click(ack, body, client):
             message_ts = private_metadata
             channel_id = body['channel']['id']  # fallback
         
-        # Get the original DataFrame from cache
-        df = global_dataframe_cache.get(message_ts)
+        # Get the ORIGINAL unfiltered DataFrame from cache
+        df = global_original_dataframe_cache.get(message_ts)
         if df is None:
             client.chat_postMessage(
                 channel=channel_id,
@@ -1060,6 +1112,7 @@ def handle_clear_all_filters_button_click(ack, body, client):
         # Cache the original DataFrame with the new message timestamp
         new_message_ts = response['ts']
         global_dataframe_cache[new_message_ts] = df.copy()
+        global_original_dataframe_cache[new_message_ts] = df.copy()  # Also cache as original
         
         # Also cache the original SQL query so other buttons work
         original_sql = global_sql_cache.get(message_ts)
@@ -1084,20 +1137,20 @@ def handle_filter_data_button_click(ack, body, client):
     message_ts = body['message']['ts']
     channel_id = body['channel']['id']
     
-    # Get the DataFrame from cache
-    df = global_dataframe_cache.get(message_ts)
+    # Get the ORIGINAL unfiltered DataFrame from cache for modal creation
+    original_df = global_original_dataframe_cache.get(message_ts)
     
-    if df is None:
+    if original_df is None:
         client.chat_postMessage(
             channel=channel_id,
-            text="Sorry, I couldn't retrieve the data for filtering. The query might have expired or been cleared.",
+            text="Sorry, I couldn't retrieve the original data for filtering. The query might have expired or been cleared.",
             thread_ts=message_ts
         )
         return
     
     try:
-        # Create and open the filter modal
-        modal = create_filter_modal(df, message_ts, channel_id)
+        # Create and open the filter modal using the original DataFrame
+        modal = create_filter_modal(original_df, message_ts, channel_id)
         client.views_open(
             trigger_id=body["trigger_id"],
             view=modal
@@ -1130,10 +1183,10 @@ def handle_filter_modal_submission(ack, body, client, view):
             message_ts = private_metadata
             channel_id = None  # Fallback - will need to handle this case
         
-        # Get the original DataFrame from cache
-        df = global_dataframe_cache.get(message_ts)
+        # Get the ORIGINAL unfiltered DataFrame from cache
+        df = global_original_dataframe_cache.get(message_ts)
         if df is None:
-            print(f"Error: No DataFrame found in cache for message_ts: {message_ts}")
+            print(f"Error: No original DataFrame found in cache for message_ts: {message_ts}")
             return
         
         # Extract filter values from modal
@@ -1170,6 +1223,14 @@ def handle_filter_modal_submission(ack, body, client, view):
             original_sql = global_sql_cache.get(message_ts)
             if original_sql:
                 global_sql_cache[new_message_ts] = original_sql
+            
+            # IMPORTANT: Propagate the original unfiltered DataFrame reference
+            # Always trace back to the very first original DataFrame from SQL
+            original_df = global_original_dataframe_cache.get(message_ts)
+            if original_df is not None:
+                global_original_dataframe_cache[new_message_ts] = original_df.copy()
+                if DEBUG:
+                    print(f"Propagated original DataFrame ({len(original_df)} rows) to new message")
             
             if DEBUG:
                 print(f"Cached filtered DataFrame with new message_ts: {new_message_ts}")
