@@ -6,5 +6,8 @@ pandas
 numpy
 python-dotenv
 matplotlib
+plotly
+kaleido
+seaborn
 
 
