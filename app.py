@@ -12,10 +12,10 @@ import requests
 import tempfile
 import io
 
-# Import charting functions from the new file
-from chart_utils import select_and_plot_chart, upload_chart_to_slack
-# Import experimental intelligent charting
-from chart_utils_experimental import create_intelligent_chart
+# Import experimental intelligent charting (unused but kept for compatibility)
+from _chart_utils_experimental import create_intelligent_chart
+# Import AI-powered charting
+from charter import ai_plot
 # Import data filter modal functionality
 from data_filter_modal import (
     get_filter_data_button_element, 
@@ -81,7 +81,7 @@ global_dataframe_cache = {}  # Cache for DataFrames used in filtering
 global_original_dataframe_cache = {}  # Cache for original unfiltered DataFrames
 SQL_SHOW_BUTTON_ACTION_ID = "show_full_sql_query_button"
 REFINE_QUERY_BUTTON_ACTION_ID = "refine_query_button"
-RENDER_CHART_BUTTON_ACTION_ID = "render_chart_button"
+RENDER_CHART_BUTTON_ACTION_ID = "ai_chart_button"  # Now uses AI-powered charting
 DOWNLOAD_DATA_BUTTON_ACTION_ID = "download_data_button"
 ROW_LIMIT_DROPDOWN_ACTION_ID = "row_limit_select"
 
@@ -359,11 +359,11 @@ def get_row_limit_dropdown_element(data_size=None):
     
     for value in sorted(set(valid_options)):
         options.append({
-            "text": {"type": "plain_text", "text": str(value)},
+            "text": {"type": "plain_text", "text": f"{value} {'Row' if value == 1 else 'Rows'}"},
             "value": str(value)
         })
     
-    initial_option = {"text": {"type": "plain_text", "text": "10"}, "value": "10"}
+    initial_option = {"text": {"type": "plain_text", "text": "10 Rows"}, "value": "10"}
     
     return {
         "type": "static_select",
@@ -514,7 +514,7 @@ def get_row_limit_dropdown_element(data_size=None):
     options = []
     for value in sorted(set(valid_options)):
         options.append({
-            "text": {"type": "plain_text", "text": str(value)}, 
+            "text": {"type": "plain_text", "text": f"{value} {'Row' if value == 1 else 'Rows'}"}, 
             "value": str(value)
         })
     
@@ -536,16 +536,18 @@ def get_row_limit_dropdown_element(data_size=None):
         "action_id": ROW_LIMIT_DROPDOWN_ACTION_ID
     }
 
-# Helper for Render Chart button element
+
+
+# Helper for Render Chart button element (AI-powered)
 def get_render_chart_button_element():
     """
-    Returns the Slack Block Kit element for the "Render Chart" button.
+    Returns the Slack Block Kit element for the "Render Chart" button (AI-powered).
     """
     return {
         "type": "button",
         "text": {
             "type": "plain_text",
-            "text": "Render Chart",
+            "text": "AI Chart",
             "emoji": True
         },
         "style": "primary",
@@ -1251,7 +1253,9 @@ def handle_refine_query_button_click(ack, body, client):
         if 'cur' in locals() and cur:
             cur.close()
 
-# Action handler for "Render Chart" button
+
+
+# Action handler for "Render Chart" button (AI-powered)
 @app.action(RENDER_CHART_BUTTON_ACTION_ID)
 def handle_render_chart_button_click(ack, body, client):
     ack()
@@ -1260,18 +1264,10 @@ def handle_render_chart_button_click(ack, body, client):
 
     sql_query = global_sql_cache.get(message_ts)
 
-    # Debug cache status
-    if DEBUG:
-        print(f"Chart button clicked for message_ts: {message_ts}")
-        print(f"Cache has {len(global_sql_cache)} entries")
-        print(f"Cache keys: {list(global_sql_cache.keys())}")
-        print(f"SQL query found: {sql_query is not None}")
-
     if not sql_query:
         client.chat_postMessage(
             channel=channel_id,
-            text="Sorry, I couldn't retrieve the data for charting. The query might have expired or been cleared.",
-
+            text="Sorry, I couldn't retrieve the data for AI charting. The query might have expired or been cleared.",
         )
         return
 
@@ -1282,57 +1278,132 @@ def handle_render_chart_button_click(ack, body, client):
         if df is None:
             client.chat_postMessage(
                 channel=channel_id,
-                text="❌ No data available for charting. The data may have expired."
+                text="❌ No data available for AI charting. The data may have expired."
             )
             return
         
-        if DEBUG:
-            print(f"Chart: Using DataFrame with {len(df)} rows")
-            print(f"Chart: DataFrame shape: {df.shape}")
-            print(f"Chart: DataFrame columns: {list(df.columns)}")
-            print(f"Chart: First few rows:\n{df.head()}")
-
-        # Simple chart generation - use fallback method only for consistency
-        chart_img_url = select_and_plot_chart(df, client)
-        
-        if chart_img_url:
-            # Post chart with action buttons (but no record count dropdown)
-            chart_blocks = [
+        # Show progress message
+        analyzing_response = client.chat_postMessage(
+            channel=channel_id,
+            blocks=[
                 {
-                    "type": "image",
-                    "image_url": chart_img_url,
-                    "alt_text": "Generated Chart"
-                },
-                get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=False)
-            ]
+                    "type": "rich_text",
+                    "elements": [
+                        {
+                            "type": "rich_text_section",
+                            "elements": [
+                                {
+                                    "type": "text",
+                                    "text": "🤖 ", 
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "AI is analyzing your data and creating an intelligent chart...",
+                                    "style": {
+                                        "bold": True
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+        )
+        analyzing_ts = analyzing_response['ts']
+        
+        if DEBUG:
+            print(f"AI Chart: Using DataFrame with {len(df)} rows")
+            print(f"AI Chart: DataFrame shape: {df.shape}")
+            print(f"AI Chart: DataFrame columns: {list(df.columns)}")
+            print(f"AI Chart: User prompt: {last_user_prompt_global}")
+
+        # Create Snowpark session from existing connection
+        from snowflake.snowpark import Session
+        session = Session.builder.configs({"connection": CONN}).create()
+        
+        # Use AI-powered charting with the original user prompt
+        fig = ai_plot(session, last_user_prompt_global, df)
+        
+        if fig:
+            # Convert to image and upload to Slack
+            import plotly.io as pio
+            import tempfile
+            import os
             
-            chart_response = client.chat_postMessage(
-                channel=channel_id,
-                text="Chart generated",
-                blocks=chart_blocks
-            )
+            # Save as PNG
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+                pio.write_image(fig, tmp_file.name, format='png', width=1200, height=800)
+                
+                # Upload to Slack without initial comment (we'll update the analyzing message instead)
+                with open(tmp_file.name, 'rb') as f:
+                    upload_response = client.files_upload_v2(
+                        channel=channel_id,
+                        file=f.read(),
+                        filename="ai_chart.png",
+                        title="AI-Generated Chart"
+                    )
+                
+                # Clean up temp file
+                os.unlink(tmp_file.name)
             
-            # Cache the DataFrame for the chart message so buttons work
-            chart_message_ts = chart_response['ts']
-            global_dataframe_cache[chart_message_ts] = df
-            global_sql_cache[chart_message_ts] = global_sql_cache.get(message_ts)
-            global_original_dataframe_cache[chart_message_ts] = global_original_dataframe_cache.get(message_ts)
-            
-            if DEBUG:
-                print("Chart posted successfully to main channel with action buttons (no record count)")
-                print(f"Chart message response: {chart_response.get('ok', False)}")
+            if upload_response.get('ok'):
+                # Update the original "analyzing" message with completion status (using same rich_text structure)
+                chart_blocks = [
+                    {
+                        "type": "rich_text",
+                        "elements": [
+                            {
+                                "type": "rich_text_section",
+                                "elements": [
+                                    {
+                                        "type": "text",
+                                        "text": "✅ ", 
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": "AI Chart Complete! The chart below was intelligently selected based on your data and question.",
+                                        "style": {
+                                            "bold": True
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+                
+                chart_response = client.chat_update(
+                    channel=channel_id,
+                    ts=analyzing_ts,
+                    text="AI Chart Complete",
+                    blocks=chart_blocks
+                )
+                
+                # Cache the DataFrame for the chart message so buttons work
+                chart_message_ts = chart_response['ts']
+                global_dataframe_cache[chart_message_ts] = df
+                global_sql_cache[chart_message_ts] = global_sql_cache.get(message_ts)
+                global_original_dataframe_cache[chart_message_ts] = global_original_dataframe_cache.get(message_ts)
+                
+                if DEBUG:
+                    print("AI Chart posted successfully to main channel with action buttons")
+            else:
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text="❌ Could not upload AI-generated chart."
+                )
         else:
             client.chat_postMessage(
                 channel=channel_id,
-                text="❌ Could not generate chart for this data."
+                text="❌ Could not generate AI chart for this data."
             )
 
     except Exception as e:
         error_info = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
-        print(f"ERROR rendering chart: {error_info}")
+        print(f"ERROR rendering AI chart: {error_info}")
         client.chat_postMessage(
             channel=channel_id,
-            text=f"❌ Chart generation failed: {str(e)}"
+            text=f"❌ AI Chart generation failed: {str(e)}"
         )
 
 # Action handler for "Download Data" button
