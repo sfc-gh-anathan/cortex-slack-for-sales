@@ -81,12 +81,19 @@ global_dataframe_cache = {}  # Cache for DataFrames used in filtering
 global_original_dataframe_cache = {}  # Cache for original unfiltered DataFrames
 SQL_SHOW_BUTTON_ACTION_ID = "show_full_sql_query_button"
 REFINE_QUERY_BUTTON_ACTION_ID = "refine_query_button"
+REFINE_PROMPT_MODAL_ACTION_ID = "refine_prompt_modal"
 RENDER_CHART_BUTTON_ACTION_ID = "ai_chart_button"  # Now uses AI-powered charting
 DOWNLOAD_DATA_BUTTON_ACTION_ID = "download_data_button"
 ROW_LIMIT_DROPDOWN_ACTION_ID = "row_limit_select"
 
 # Global variable to store the last user prompt
 last_user_prompt_global = ""
+
+# Global variable to store refinement information per message
+global_refinement_cache = {}  # {message_ts: {"needs_refinement": bool, "suggestions": str}}
+
+# Global variable to preserve row limit during prompt refinement
+preserved_row_limit_for_refinement = None
 
 
 
@@ -239,11 +246,18 @@ def background_refinement_analysis(user_prompt, message_ts, channel_id, app_clie
         if DEBUG:
             print(f"🔍 Refinement result: '{refinement_message}'")
         
+        # Store refinement information in global cache for later use by action buttons
+        needs_refinement = "appropriately specific" not in refinement_message.lower()
+        global_refinement_cache[message_ts] = {
+            "needs_refinement": needs_refinement,
+            "suggestions": refinement_message
+        }
+        
         # Check if refinement suggests improvements (NOT "appropriately specific")
-        if "appropriately specific" not in refinement_message.lower():
-            # Add red refinement button to the existing message
-            add_smart_refinement_button(message_ts, channel_id, refinement_message, app_client)
-            print("⚠️ PROMPT WARNING DISPLAYED: Refinement suggestions shown to user")
+        if needs_refinement:
+            print("⚠️ PROMPT NEEDS REFINEMENT: Will show Refine Prompt button")
+            # Add the refinement button to the existing message
+            add_refinement_button_to_message(message_ts, channel_id, app_client)
         else:
             # Add green checkmark for appropriately specific queries
             add_prompt_specific_notification(message_ts, channel_id, app_client)
@@ -254,6 +268,59 @@ def background_refinement_analysis(user_prompt, message_ts, channel_id, app_clie
     except Exception as e:
         if DEBUG:
             print(f"❌ Error in background refinement analysis: {e}")
+
+def add_refinement_button_to_message(message_ts, channel_id, app_client):
+    """Add the Refine Prompt button to an existing message"""
+    try:
+        # Get the current message
+        message_response = app_client.conversations_history(
+            channel=channel_id,
+            latest=message_ts,
+            limit=1,
+            inclusive=True
+        )
+        
+        if not message_response['messages']:
+            print("❌ Could not find message to add refinement button")
+            return
+            
+        current_message = message_response['messages'][0]
+        updated_blocks = current_message.get('blocks', [])
+        
+        # Find the action buttons block and update it to include the refinement button
+        for i, block in enumerate(updated_blocks):
+            if block.get("type") == "actions":
+                # Get the current data size from the row limit dropdown if it exists
+                data_size = None
+                for element in block.get("elements", []):
+                    if element.get("action_id") == ROW_LIMIT_DROPDOWN_ACTION_ID:
+                        # This message has data, so we can determine the size
+                        # For now, we'll use a default approach
+                        data_size = 100  # Default assumption
+                        break
+                
+                # Replace the action buttons block with one that includes the refinement button
+                updated_blocks[i] = get_action_buttons_block(
+                    include_show_sql=True, 
+                    data_size=data_size, 
+                    include_row_limit=(data_size is not None),
+                    include_refine_prompt=True
+                )
+                break
+        
+        # Update the message
+        app_client.chat_update(
+            channel=channel_id,
+            ts=message_ts,
+            blocks=updated_blocks
+        )
+        
+        if DEBUG:
+            print(f"✅ Added refinement button to message {message_ts}")
+            
+    except Exception as e:
+        if DEBUG:
+            print(f"❌ Error adding refinement button: {e}")
 
 def add_prompt_specific_notification(message_ts, channel_id, app_client):
     """Add a green checkmark notification for appropriately specific queries"""
@@ -489,8 +556,8 @@ def get_row_limit_dropdown_element(data_size=None):
     Returns the Slack Block Kit element for the row limit dropdown.
     Always defaults to 10 rows and never shows more options than total rows.
     """
-    # Always default to 10 rows
-    default_value = "10"
+    # Use preserved row limit if available, otherwise default to 10 rows
+    default_value = str(preserved_row_limit_for_refinement or 10)
     
     # Base options (always include 10)
     base_options = [10, 25, 50, 100, 200]
@@ -570,8 +637,75 @@ def get_download_data_button_element():
         "action_id": DOWNLOAD_DATA_BUTTON_ACTION_ID
     }
 
+def get_refine_prompt_button_element():
+    """Returns the 'Refine Prompt' button element for modal-based refinement"""
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "Refine Prompt"},
+        "style": "danger",  # Red button to indicate needs attention
+        "action_id": REFINE_PROMPT_MODAL_ACTION_ID
+    }
+
+def create_refine_prompt_modal(original_prompt, refinement_suggestions):
+    """Creates the modal view for prompt refinement with AI suggestions"""
+    return {
+        "type": "modal",
+        "callback_id": "refine_prompt_modal_submit",
+        "title": {
+            "type": "plain_text",
+            "text": "Refine Your Prompt"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Submit Refined Prompt"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Cancel"
+        },
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Refinement Feedback:* \n{refinement_suggestions}"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Your Current Prompt:"
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "refined_prompt_input",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "refined_prompt_text",
+                    "initial_value": original_prompt,
+                    "multiline": True,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Edit your prompt based on the suggestions above..."
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Refined Prompt"
+                }
+            }
+        ]
+    }
+
 # NEW: Combined actions block for all four buttons
-def get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=True): # MODIFIED: Added include_row_limit parameter
+def should_include_refine_prompt(message_ts):
+    """Helper function to determine if the Refine Prompt button should be included"""
+    refinement_info = global_refinement_cache.get(message_ts)
+    return refinement_info and refinement_info.get("needs_refinement", False)
+
+def get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=True, include_refine_prompt=False): # MODIFIED: Added include_refine_prompt parameter
     """
     Returns a Slack Block Kit 'actions' block containing desired buttons on the same row.
     """
@@ -590,8 +724,9 @@ def get_action_buttons_block(include_show_sql=True, data_size=None, include_row_
         get_download_data_button_element()
     ])
     
-
-
+    # Add "Refine Prompt" button if refinement is needed
+    if include_refine_prompt:
+        elements.append(get_refine_prompt_button_element())
 
     return {
         "type": "actions",
@@ -777,11 +912,19 @@ def display_agent_response(content, say, app_client, original_body):
                 }
             })
             
-            # Add action buttons even for empty results (user might want to see SQL, etc.)
-            final_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=0, include_row_limit=False))
+            # Post initial message to get message_ts
+            message_ts = say(text="No results found", blocks=final_blocks)['ts']
+            
+            # Add action buttons without refinement (background thread will add refinement button if needed)
+            final_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=0, include_row_limit=False, include_refine_prompt=False))
+            app_client.chat_update(
+                channel=channel_id,
+                ts=message_ts,
+                blocks=final_blocks,
+                text="No results found"
+            )
             
             # Cache the empty DataFrame and SQL for potential button interactions
-            message_ts = say(text="No results found", blocks=final_blocks)['ts']
             global_dataframe_cache[message_ts] = df
             global_sql_cache[message_ts] = sql
             global_original_dataframe_cache[message_ts] = df.copy()
@@ -845,15 +988,17 @@ def display_agent_response(content, say, app_client, original_body):
                         "elements": [
                             {
                                 "type": "text",
-                                "text": _get_safe_table_text(display_df, "", 10)
+                                "text": _get_safe_table_text(display_df, "", preserved_row_limit_for_refinement or 10)
                             }
                         ]
                     }
                 ]
             })
 
-        # Add the combined action buttons block, including Show SQL Query initially.
-        final_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=len(df))) # Pass data size for smart default
+        # Add the combined action buttons block initially without refinement button
+        # Use preserved row limit if available (for refined prompts), otherwise use data size for smart default
+        display_limit = preserved_row_limit_for_refinement or len(df)
+        final_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=display_limit, include_refine_prompt=False))
 
         # Send the initial message and capture its timestamp (ts)
         try:
@@ -863,6 +1008,8 @@ def display_agent_response(content, say, app_client, original_body):
                 text="Your query results are ready."
             )
             message_ts = post_response['ts']
+            
+            # Background thread will add refinement button if needed - no need to check immediately
 
             # Store the full SQL query and DataFrame in the global cache, keyed by message_ts
             global_sql_cache[message_ts] = sql
@@ -940,7 +1087,7 @@ def handle_show_sql_query(ack, body, client):
 
     for block in current_blocks:
         # Filter out the existing action buttons block
-        if block.get("type") == "actions" and any(e.get('action_id') in [REFINE_QUERY_BUTTON_ACTION_ID, SQL_SHOW_BUTTON_ACTION_ID, RENDER_CHART_BUTTON_ACTION_ID, DOWNLOAD_DATA_BUTTON_ACTION_ID, ROW_LIMIT_DROPDOWN_ACTION_ID] for e in block['elements']):
+        if block.get("type") == "actions" and any(e.get('action_id') in [REFINE_QUERY_BUTTON_ACTION_ID, REFINE_PROMPT_MODAL_ACTION_ID, SQL_SHOW_BUTTON_ACTION_ID, RENDER_CHART_BUTTON_ACTION_ID, DOWNLOAD_DATA_BUTTON_ACTION_ID, ROW_LIMIT_DROPDOWN_ACTION_ID] for e in block['elements']):
             # This is our action buttons block, we will re-add a modified version later
             continue
         # Check if the SQL is already in the message (e.g., if button was clicked twice)
@@ -1073,7 +1220,8 @@ def handle_row_limit_change(ack, body, client):
             })
             
             # Add action buttons without row limit dropdown
-            updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=0, include_row_limit=False))
+            # Add action buttons (refinement button will be added by background thread if needed)
+            updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=0, include_row_limit=False, include_refine_prompt=False))
             
             # Update the message
             client.chat_update(
@@ -1119,7 +1267,8 @@ def handle_row_limit_change(ack, body, client):
         })
         
         # Re-add the action buttons with updated dropdown selection
-        updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=len(df)))
+        # Add action buttons (refinement button will be added by background thread if needed)
+        updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=len(df), include_refine_prompt=False))
         
         # Update the message
         client.chat_update(
@@ -1253,7 +1402,73 @@ def handle_refine_query_button_click(ack, body, client):
         if 'cur' in locals() and cur:
             cur.close()
 
+# Action handler for "Refine Prompt" modal button
+@app.action(REFINE_PROMPT_MODAL_ACTION_ID)
+def handle_refine_prompt_modal_click(ack, body, client):
+    """
+    Handles the click event for the "Refine Prompt" button.
+    Opens a modal with refinement suggestions and editable prompt.
+    """
+    ack()
 
+    message_ts = body['message']['ts']
+    channel_id = body['channel']['id']
+    user_id = body['user']['id']
+    trigger_id = body['trigger_id']
+
+    if not last_user_prompt_global:
+        client.chat_postMessage(
+            channel=channel_id,
+            text="Sorry, I couldn't retrieve the last prompt to refine. Please try another prompt."
+        )
+        return
+
+    try:
+        # Get refinement suggestions from cache (already computed in background)
+        refinement_info = global_refinement_cache.get(message_ts)
+        if refinement_info and refinement_info.get("suggestions"):
+            refinement_suggestions = refinement_info["suggestions"]
+        else:
+            # Fallback: call Snowflake if cache is missing
+            cur = CONN.cursor()
+            escaped_stage_path = SNOWFLAKE_STAGE_PATH.replace("'", "''")
+            escaped_file_name = SNOWFLAKE_FILE_NAME.replace("'", "''")
+            escaped_user_prompt = last_user_prompt_global.replace("'", "''")
+
+            sql_call_formatted = (
+                f"CALL {DATABASE}.{SCHEMA}.REFINE_QUERY("
+                f"'{escaped_stage_path}', "
+                f"'{escaped_file_name}', "
+                f"'{escaped_user_prompt}')"
+            )
+
+            cur.execute(sql_call_formatted)
+            result = cur.fetchone()
+            cur.close()
+
+            if result:
+                refinement_suggestions = result[0]
+            else:
+                refinement_suggestions = "No specific suggestions available. Consider being more specific about time periods, metrics, or filters."
+
+        # Create and open the modal
+        modal_view = create_refine_prompt_modal(last_user_prompt_global, refinement_suggestions)
+        
+        # Store the original message context for the modal submission
+        modal_view["private_metadata"] = f"{message_ts}|{channel_id}"
+        
+        client.views_open(
+            trigger_id=trigger_id,
+            view=modal_view
+        )
+
+    except Exception as e:
+        error_info = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
+        print(f"ERROR opening refine prompt modal: {error_info}")
+        client.chat_postMessage(
+            channel=channel_id,
+            text=f"An error occurred while opening the refinement modal: {e}"
+        )
 
 # Action handler for "Render Chart" button (AI-powered)
 @app.action(RENDER_CHART_BUTTON_ACTION_ID)
@@ -1330,9 +1545,10 @@ def handle_render_chart_button_click(ack, body, client):
             import tempfile
             import os
             
-            # Save as PNG
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-                pio.write_image(fig, tmp_file.name, format='png', width=1200, height=800)
+            try:
+                # Save as PNG
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+                    pio.write_image(fig, tmp_file.name, format='png', width=1200, height=800)
                 
                 # Upload to Slack without initial comment (we'll update the analyzing message instead)
                 with open(tmp_file.name, 'rb') as f:
@@ -1345,6 +1561,39 @@ def handle_render_chart_button_click(ack, body, client):
                 
                 # Clean up temp file
                 os.unlink(tmp_file.name)
+                
+            except Exception as render_error:
+                print(f"⚠️ Chart rendering failed: {str(render_error)}")
+                # Post friendly error message to Slack using exact same rich_text structure as original message
+                client.chat_update(
+                    channel=channel_id,
+                    ts=analyzing_ts,
+                    text="❌ Chart Rendering Error",
+                    blocks=[
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {
+                                            "type": "text",
+                                            "text": "📊 ",
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": f"Chart rendering failed\n\nDataset: {len(df):,} rows",
+                                            "style": {
+                                                "bold": True
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                )
+                return  # Exit early, don't try to process upload
             
             if upload_response.get('ok'):
                 # Update the original "analyzing" message with completion status (using same rich_text structure)
@@ -1625,6 +1874,156 @@ def handle_filter_data_button_click(ack, body, client):
 
         )
 
+
+# Modal submission handler for refine prompt modal
+@app.view("refine_prompt_modal_submit")
+def handle_refine_prompt_modal_submission(ack, body, client, view):
+    """
+    Handles the submission of the refine prompt modal.
+    Processes the refined prompt and re-runs the analysis.
+    """
+    ack()
+    
+    global last_user_prompt_global
+    
+    try:
+        # Get the original message timestamp and channel from private_metadata
+        private_metadata = view.get("private_metadata", "")
+        if not private_metadata:
+            print("ERROR: No private_metadata found in modal submission")
+            return
+            
+        message_ts, channel_id = private_metadata.split("|")
+        
+        # Get the refined prompt from the modal
+        values = view["state"]["values"]
+        refined_prompt_input = values["refined_prompt_input"]["refined_prompt_text"]
+        refined_prompt = refined_prompt_input["value"]
+        
+        if not refined_prompt or not refined_prompt.strip():
+            client.chat_postMessage(
+                channel=channel_id,
+                text="❌ Please provide a refined prompt before submitting."
+            )
+            return
+        
+        # Update the global prompt variable
+        global last_user_prompt_global
+        last_user_prompt_global = refined_prompt.strip()
+        
+        # Get the current row limit from the original message to preserve it
+        current_row_limit = None
+        try:
+            # Fetch the original message to get current row limit setting
+            original_message = client.conversations_history(
+                channel=channel_id,
+                latest=message_ts,
+                limit=1,
+                inclusive=True
+            )
+            
+            if original_message["ok"] and original_message["messages"]:
+                blocks = original_message["messages"][0].get("blocks", [])
+                for block in blocks:
+                    if block.get("type") == "actions":
+                        for element in block.get("elements", []):
+                            if element.get("action_id") == ROW_LIMIT_DROPDOWN_ACTION_ID:
+                                # Get selected value from the dropdown
+                                if "initial_option" in element:
+                                    current_row_limit = int(element["initial_option"]["value"])
+                                    print(f"🔄 Preserving row limit: {current_row_limit}")
+                                break
+        except Exception as e:
+            print(f"Warning: Could not retrieve row limit from original message: {e}")
+        
+        # Post a message indicating we're processing the refined prompt
+        client.chat_postMessage(
+            channel=channel_id,
+            blocks=[
+                {
+                    "type": "rich_text",
+                    "elements": [
+                        {
+                            "type": "rich_text_section",
+                            "elements": [
+                                {
+                                    "type": "text",
+                                    "text": "✨ ",
+                                },
+                                {
+                                    "type": "text",
+                                    "text": f"Processing your refined prompt: '{refined_prompt}'",
+                                    "style": {
+                                        "bold": True
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        )
+        
+        # Instead of copy/paste hack, directly process the refined prompt
+        # This gives the user the same experience as if they typed and sent the refined prompt
+        
+        # Update the global prompt variable for the background analysis
+        last_user_prompt_global = refined_prompt
+        
+        # Create a fake message event to trigger normal processing
+        fake_body = {
+            "event": {
+                "text": refined_prompt,
+                "channel": channel_id,
+                "ts": str(time.time()),  # Generate new timestamp
+                "user": body["user"]["id"]
+            },
+            "team_id": body.get("team", {}).get("id", ""),
+            "api_app_id": body.get("api_app_id", "")
+        }
+        
+        # Create a fake say function that posts to the same channel
+        def fake_say(text=None, blocks=None, **kwargs):
+            return client.chat_postMessage(
+                channel=channel_id,
+                text=text,
+                blocks=blocks,
+                **kwargs
+            )
+        
+        # Process the refined prompt through the normal message handler
+        print(f"🔄 Processing refined prompt: {refined_prompt}")
+        
+        # Store the preserved row limit globally for the fake message processing
+        global preserved_row_limit_for_refinement
+        preserved_row_limit_for_refinement = current_row_limit
+        
+        # Create a fake ack function
+        def fake_ack():
+            pass
+        
+        handle_message_events(fake_ack, fake_body, fake_say)
+        
+        # Clear the preserved row limit after processing
+        preserved_row_limit_for_refinement = None
+        
+        print(f"✅ Refined prompt processed successfully")
+        
+    except Exception as e:
+        error_info = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
+        print(f"ERROR handling refine prompt modal submission: {error_info}")
+        
+        # Try to get channel_id from the error context
+        try:
+            private_metadata = view.get("private_metadata", "")
+            if private_metadata:
+                _, channel_id = private_metadata.split("|")
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text=f"An error occurred while processing your refined prompt: {e}"
+                )
+        except:
+            pass
 
 # Modal submission handler for filter modal
 @app.view(FILTER_MODAL_CALLBACK_ID)

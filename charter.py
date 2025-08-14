@@ -152,21 +152,29 @@ def _plot_with_px(name: str, data_frame, **kwargs):
     # Add dataset description and enhance chart information
     data_description = f"Dataset: {processed_data.shape[0]} records across {processed_data.shape[1]} columns"
     
-    # Get the original prompt from the ai_plot function call context
-    # We'll pass this through the _plot_with_px call
+    # Get the original prompt and sampling info from the ai_plot function call context
     prompt_info = getattr(_plot_with_px, '_current_prompt', None)
+    was_sampled = getattr(_plot_with_px, '_was_sampled', False)
+    original_size = getattr(_plot_with_px, '_original_size', len(data_frame))
+    
+    # Add sampling info to data description if applicable
+    final_data_description = data_description
+    if was_sampled:
+        final_data_description += f" (Showing {len(data_frame):,} of {original_size:,} total records)"
     
     if 'title' in kwargs:
-        # Enhance the title with prompt and dataset info
+        # Enhance the title with prompt and dataset info (keep short to avoid filename issues)
         title_parts = [kwargs['title']]
         if prompt_info:
-            title_parts.append(f"<i>Question: {prompt_info}</i>")
-        title_parts.append(f"<sub>{data_description}</sub>")
+            # Truncate long prompts to prevent filename issues
+            short_prompt = prompt_info[:50] + "..." if len(prompt_info) > 50 else prompt_info
+            title_parts.append(f"<i>Question: {short_prompt}</i>")
+        title_parts.append(f"<sub>{final_data_description}</sub>")
         enhanced_title = "<br>".join(title_parts)
         fig.update_layout(title=enhanced_title)
     else:
-        base_title = prompt_info if prompt_info else "Data Analysis"
-        enhanced_title = f"{base_title}<br><sub>{data_description}</sub>"
+        base_title = prompt_info[:50] + "..." if prompt_info and len(prompt_info) > 50 else (prompt_info if prompt_info else "Data Analysis")
+        enhanced_title = f"{base_title}<br><sub>{final_data_description}</sub>"
         fig.update_layout(title=enhanced_title)
     
     # Debug: Print actual data values before chart generation
@@ -273,13 +281,25 @@ def _plot_with_px(name: str, data_frame, **kwargs):
             text_labels[max_idx] = f'HIGH: {format_currency(max_val)}'
             
             # Update traces with selective labeling
-            fig.update_traces(
-                text=text_labels,
-                textposition='top center',
-                textfont=dict(size=11, color='darkblue', family='Arial Black'),
-                mode='lines+markers+text' if 'markers' in str(kwargs) else 'lines+text',
-                hovertemplate=f'<b>%{{x}}</b><br>{y_col}: %{{y:,.0f}}<br><extra></extra>'  # Enhanced hover with column name
-            )
+            # Only set mode for chart types that support it (scatter, line, etc.)
+            trace_updates = {
+                'text': text_labels,
+                'textfont': dict(size=11, color='darkblue', family='Arial Black'),
+                'hovertemplate': f'<b>%{{x}}</b><br>{y_col}: %{{y:,.0f}}<br><extra></extra>'  # Enhanced hover with column name
+            }
+            
+            # Set textposition based on chart type
+            if name in ['bar', 'histogram', 'funnel']:
+                trace_updates['textposition'] = 'outside'  # Valid for bar charts
+            else:
+                trace_updates['textposition'] = 'top center'  # Valid for scatter/line charts
+            
+            # Only add mode parameter for chart types that support it
+            if name in ['scatter', 'line', 'area', 'scatter_3d', 'line_3d', 'scatter_ternary', 'line_ternary', 
+                       'scatter_mapbox', 'line_mapbox', 'scatter_geo', 'line_geo', 'scatter_polar', 'line_polar']:
+                trace_updates['mode'] = 'lines+markers+text' if 'markers' in str(kwargs) else 'lines+text'
+            
+            fig.update_traces(**trace_updates)
     
     # Fallback hover formatting for traces without specific formatting
     fig.update_traces(
@@ -300,7 +320,44 @@ def _plot_with_px(name: str, data_frame, **kwargs):
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
     
-    return fig
+    try:
+        # Test if the figure can be rendered by converting to JSON
+        # This catches most rendering issues before they hit Kaleido
+        fig.to_json()
+        return fig
+    except Exception as e:
+        print(f"⚠️ Chart rendering validation failed: {str(e)}")
+        # Return a simple fallback chart
+        import plotly.graph_objects as go
+        fallback_fig = go.Figure()
+        # Get sampling info if available
+        was_sampled = getattr(_plot_with_px, '_was_sampled', False)
+        original_size = getattr(_plot_with_px, '_original_size', len(data_frame))
+        
+        if was_sampled:
+            size_text = f"Dataset: {original_size:,} rows (sampled to {len(data_frame):,})"
+        else:
+            size_text = f"Dataset: {len(data_frame):,} rows"
+        
+        fallback_fig.add_annotation(
+            text=f"📊 Chart rendering failed<br><br>{size_text}",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, xanchor='center', yanchor='middle',
+            showarrow=False,
+            font=dict(size=16, color="darkblue"),
+            bgcolor="lightblue",
+            bordercolor="blue",
+            borderwidth=2
+        )
+        fallback_fig.update_layout(
+            title="Chart Rendering Error",
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            height=400
+        )
+        return fallback_fig
 
 
 def ai_plot(session: Session, original_prompt: str, data: pd.DataFrame):
@@ -320,6 +377,16 @@ def ai_plot(session: Session, original_prompt: str, data: pd.DataFrame):
     Raises:
         ValueError: If the response from the AI does not contain valid function or arguments.
     """
+    
+    # Sample large datasets to prevent rendering issues
+    MAX_VISUALIZATION_ROWS = 5000
+    original_size = len(data)
+    
+    if len(data) > MAX_VISUALIZATION_ROWS:
+        print(f"Your dataset has over 5000 rows, which is too large for visualization.")
+        # Use random sampling to get representative data
+        data = data.sample(n=MAX_VISUALIZATION_ROWS, random_state=42).reset_index(drop=True)
+        print(f"📊 Sampled DataFrame shape: {data.shape}")
 
     # System prompt providing context for the AI's role in visualization selection.
     system_prompt = '''
@@ -438,14 +505,17 @@ def ai_plot(session: Session, original_prompt: str, data: pd.DataFrame):
     print('Plotting with Kwargs:')
     print(json.dumps(kwargs, indent=4))
 
-    # Pass the original prompt to the plotting function for title enhancement
+    # Pass the original prompt and sampling info to the plotting function for title enhancement
     _plot_with_px._current_prompt = original_prompt
+    _plot_with_px._original_size = original_size
+    _plot_with_px._was_sampled = len(data) < original_size
     
     # Generate and return the visualization.
     result = _plot_with_px(function_name, data, **kwargs)
     
-    # Clean up the prompt reference
-    if hasattr(_plot_with_px, '_current_prompt'):
-        delattr(_plot_with_px, '_current_prompt')
+    # Clean up the references
+    for attr in ['_current_prompt', '_original_size', '_was_sampled']:
+        if hasattr(_plot_with_px, attr):
+            delattr(_plot_with_px, attr)
     
     return result
