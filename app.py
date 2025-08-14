@@ -672,13 +672,6 @@ def create_refine_prompt_modal(original_prompt, refinement_suggestions):
                 }
             },
             {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "Your Current Prompt:"
-                }
-            },
-            {
                 "type": "input",
                 "block_id": "refined_prompt_input",
                 "element": {
@@ -693,7 +686,7 @@ def create_refine_prompt_modal(original_prompt, refinement_suggestions):
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "Refined Prompt"
+                    "text": "Modify Your Prompt and Resubmit:"
                 }
             }
         ]
