@@ -54,7 +54,7 @@ def analyze_dataframe_for_filters(df):
     for col in df.columns:
         if df[col].dtype == 'object' and col not in filters_available["date_columns"]:
             unique_vals = df[col].nunique()
-            if 2 <= unique_vals <= 20:  # Reasonable range for filter options
+            if 2 <= unique_vals <= 50:  # Expanded range for filter options (was 20, now 50)
                 filters_available["categorical_columns"][col] = sorted(df[col].unique().tolist())
     
     # Check for numeric columns that could be filtered by threshold
@@ -137,9 +137,9 @@ def create_filter_modal(df, message_ts, channel_id=None):
                 "optional": True
             })
     
-    # Numeric threshold filters (for sales/amount columns)
+    # Numeric threshold filters (for financial/monetary columns)
     sales_columns = [col for col in filters_available["numeric_columns"] 
-                    if any(keyword in col.upper() for keyword in ['SALES', 'AMOUNT', 'REVENUE'])]
+                    if any(keyword in col.upper() for keyword in ['SALES', 'AMOUNT', 'REVENUE', 'COMMISSION', 'TOTAL', 'EARNINGS', 'QUOTA', 'COMPENSATION', 'PRICE', 'VALUE', 'DEAL'])]
     
     for sales_col in sales_columns[:2]:  # Limit to first 2 sales columns
         # Add minimum threshold
