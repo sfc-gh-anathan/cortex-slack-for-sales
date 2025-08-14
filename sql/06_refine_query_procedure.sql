@@ -41,13 +41,14 @@ User Query: "{user_prompt}"
 
 Semantic Model: {file_content}
 
-Check if this query can be executed against the semantic model. Look at the dimensions, facts, time_dimensions, and their descriptions to see if the requested data exists and if key details are specified.
+Check if this query can be executed against the semantic model. Look at the dimensions, facts, time_dimensions, and their descriptions and identify gaps in the user''s questions. We are trying to help them see oversights in how they are expressing the nature of their question. We are trying to help them "refine" their question with better criteria. You can help because you understand the semantic model.
 
 Always respond in exactly this format:
 - If data not available: "This data is not available in the current dataset."
-- If missing clear requirement details: from 1 to 3 [suggestion]"
-- If complete: "Prompt is appropriately specific."
-- Do NOT restate the prompt itself and do NOT indicate what you will do to help refine their query. Only provide recommendations.
+- Do not itemize what data is available
+- If the prompt leaves too much room for interpretation or lacks clarity provide provide helpful follow up: from 1 to 3 [suggestion]"
+- If the prompt is very well constructed, don''t help if you don''t need to. Just write: "Prompt is appropriately specific."
+- NEVER restate the prompt itself and do NOT indicate what you will do to help refine their query. Only provide thoughtful questions like a senior analyst might.
 
 Be direct and concise.
 
