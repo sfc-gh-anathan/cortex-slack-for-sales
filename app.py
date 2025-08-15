@@ -79,6 +79,7 @@ app = App(token=SLACK_BOT_TOKEN)
 global_sql_cache = {}
 global_dataframe_cache = {}  # Cache for DataFrames used in filtering
 global_original_dataframe_cache = {}  # Cache for original unfiltered DataFrames
+global_current_filters_cache = {}  # Cache for current active filters per message
 SQL_SHOW_BUTTON_ACTION_ID = "show_full_sql_query_button"
 REFINE_QUERY_BUTTON_ACTION_ID = "refine_query_button"
 REFINE_PROMPT_MODAL_ACTION_ID = "refine_prompt_modal"
@@ -551,13 +552,13 @@ def get_show_sql_query_button_element():
     }
 
 # Helper for Row Limit dropdown element
-def get_row_limit_dropdown_element(data_size=None):
+def get_row_limit_dropdown_element(data_size=None, selected_value=None):
     """
     Returns the Slack Block Kit element for the row limit dropdown.
     Always defaults to 10 rows and never shows more options than total rows.
     """
-    # Use preserved row limit if available, otherwise default to 10 rows
-    default_value = str(preserved_row_limit_for_refinement or 10)
+    # Use selected_value if provided, otherwise preserved row limit, otherwise default to 10 rows
+    default_value = str(selected_value or preserved_row_limit_for_refinement or 10)
     
     # Base options (always include 10)
     base_options = [10, 25, 50, 100, 200]
@@ -698,7 +699,7 @@ def should_include_refine_prompt(message_ts):
     refinement_info = global_refinement_cache.get(message_ts)
     return refinement_info and refinement_info.get("needs_refinement", False)
 
-def get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=True, include_refine_prompt=False): # MODIFIED: Added include_refine_prompt parameter
+def get_action_buttons_block(include_show_sql=True, data_size=None, include_row_limit=True, include_refine_prompt=False, selected_row_limit=None): # MODIFIED: Added include_refine_prompt parameter and selected_row_limit
     """
     Returns a Slack Block Kit 'actions' block containing desired buttons on the same row.
     """
@@ -706,7 +707,7 @@ def get_action_buttons_block(include_show_sql=True, data_size=None, include_row_
     
     # Add row limit dropdown first (left-most position) - only for filtered results, not charts
     if include_row_limit:
-        elements.append(get_row_limit_dropdown_element(data_size))
+        elements.append(get_row_limit_dropdown_element(data_size, selected_row_limit))
     
     if include_show_sql: # Only add if requested
         elements.append(get_show_sql_query_button_element())
@@ -761,6 +762,7 @@ def _get_safe_table_text(df, truncated_message="", requested_rows=None):
     """
     Get table text that's safe for Slack's character limits.
     Prioritizes showing the requested number of rows, only reduces if absolutely necessary.
+    Returns tuple: (table_text, actual_rows_displayed)
     """
     # Start with requested rows, or default to 10 if not specified
     if requested_rows is not None:
@@ -786,20 +788,30 @@ def _get_safe_table_text(df, truncated_message="", requested_rows=None):
     
     # If the requested rows fit within the limit, return them!
     if len(full_text) <= 2800:
-        return full_text
+        return full_text, max_rows
     
     # Only reduce if absolutely necessary and the request was large
     if requested_rows and requested_rows > 25:
-        # For large requests that don't fit, try half the requested amount
-        fallback_rows = max(10, requested_rows // 2)
-        display_df = df.head(fallback_rows).copy()
-        display_df = _format_dataframe_for_display(display_df)
-        base_table_text = display_df.to_string(index=False)
-        row_message = f"\n\n(Showing {fallback_rows:,} of {len(df):,} rows - table too wide for {requested_rows:,} rows.)"
-        full_text = base_table_text + truncated_message + row_message
+        # Try progressively smaller fallback amounts: half, then quarter, then reasonable minimums
+        fallback_attempts = [
+            max(25, requested_rows // 2),  # Half, but at least 25
+            max(20, requested_rows // 4),  # Quarter, but at least 20
+            max(15, requested_rows // 8),  # Eighth, but at least 15
+            10  # Final fallback
+        ]
         
-        if len(full_text) <= 2800:
-            return full_text
+        for fallback_rows in fallback_attempts:
+            if fallback_rows >= requested_rows:  # Skip if not actually smaller
+                continue
+                
+            display_df = df.head(fallback_rows).copy()
+            display_df = _format_dataframe_for_display(display_df)
+            base_table_text = display_df.to_string(index=False)
+            row_message = f"\n\n(Showing {fallback_rows:,} of {len(df):,} rows - reduced from {requested_rows:,} due to Slack size limits.)"
+            full_text = base_table_text + truncated_message + row_message
+            
+            if len(full_text) <= 2800:
+                return full_text, fallback_rows
     
     # Last resort: reduce to a safe minimum
     safe_rows = 10
@@ -807,11 +819,11 @@ def _get_safe_table_text(df, truncated_message="", requested_rows=None):
         display_df = df.head(safe_rows).copy()
         display_df = _format_dataframe_for_display(display_df)
         base_table_text = display_df.to_string(index=False)
-        row_message = f"\n\n(Showing {safe_rows:,} of {len(df):,} rows - table too wide for full display.)"
+        row_message = f"\n\n(Showing {safe_rows:,} of {len(df):,} rows - reduced due to Slack size limits.)"
         full_text = base_table_text + truncated_message + row_message
         
         if len(full_text) <= 2800:
-            return full_text
+            return full_text, safe_rows
         
         safe_rows -= 2
     
@@ -823,7 +835,7 @@ def _get_safe_table_text(df, truncated_message="", requested_rows=None):
         table_text = table_text[:2700] + "..."
     table_text += f"\n\n(Table truncated for Slack display. Use dropdown to adjust.)"
     
-    return table_text
+    return table_text, 3
 
 def display_agent_response(content, say, app_client, original_body):
     """
@@ -981,7 +993,7 @@ def display_agent_response(content, say, app_client, original_body):
                         "elements": [
                             {
                                 "type": "text",
-                                "text": _get_safe_table_text(display_df, "", preserved_row_limit_for_refinement or 10)
+                                "text": _get_safe_table_text(display_df, "", preserved_row_limit_for_refinement or min(len(df), 10))[0]
                             }
                         ]
                     }
@@ -1135,6 +1147,7 @@ def handle_row_limit_change(ack, body, client):
     channel_id = body['channel']['id']
     selected_limit = int(body['actions'][0]['selected_option']['value'])
     
+
     # Try to get DataFrame from cache first, then fall back to SQL
     df = global_dataframe_cache.get(message_ts)
     
@@ -1225,10 +1238,8 @@ def handle_row_limit_change(ack, body, client):
             )
             return
         
-        # Apply the selected row limit
-        df_limited = df.head(selected_limit)
-        
         # Get current blocks and rebuild with new data
+        # Note: _get_safe_table_text will handle the row limiting internally
         current_blocks = body['message']['blocks']
         updated_blocks = []
         
@@ -1243,12 +1254,8 @@ def handle_row_limit_change(ack, body, client):
                 updated_blocks.append(block)
         
         # Add the new table block with limited rows using safe text function
-        if len(df) > selected_limit:
-            truncated_message = f"\n(Showing {selected_limit} of {len(df)} total rows)"
-        else:
-            truncated_message = ""
-        
-        safe_table_content = _get_safe_table_text(df_limited, truncated_message, selected_limit)
+        # Note: _get_safe_table_text handles all row count messages internally and limiting
+        safe_table_content, actual_rows_displayed = _get_safe_table_text(df, "", selected_limit)
         table_text = f"```\n{safe_table_content}\n```"
         
         updated_blocks.append({
@@ -1260,8 +1267,8 @@ def handle_row_limit_change(ack, body, client):
         })
         
         # Re-add the action buttons with updated dropdown selection
-        # Add action buttons (refinement button will be added by background thread if needed)
-        updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=len(df), include_refine_prompt=False))
+        # Use actual_rows_displayed (what was actually shown) instead of selected_limit (what was requested)
+        updated_blocks.append(get_action_buttons_block(include_show_sql=True, data_size=len(df), include_refine_prompt=False, selected_row_limit=actual_rows_displayed))
         
         # Update the message
         client.chat_update(
@@ -1818,6 +1825,9 @@ def handle_clear_all_filters_button_click(ack, body, client):
         global_dataframe_cache[new_message_ts] = df.copy()
         global_original_dataframe_cache[new_message_ts] = df.copy()  # Also cache as original
         
+        # Clear any current filters for the new message (since all filters are cleared)
+        global_current_filters_cache[new_message_ts] = {}
+        
         # Also cache the original SQL query so other buttons work
         original_sql = global_sql_cache.get(message_ts)
         if original_sql:
@@ -1831,6 +1841,70 @@ def handle_clear_all_filters_button_click(ack, body, client):
         client.chat_postMessage(
             channel=body['channel']['id'],
             text=f"An error occurred while clearing filters: {e}",
+            ephemeral=True
+        )
+
+# View submission handler for filter modal
+@app.view("data_filter_modal")
+def handle_filter_modal_submission(ack, body, client, view):
+    ack()
+    
+    # Get the original message timestamp and channel from the modal's private_metadata
+    try:
+        private_metadata = view['private_metadata']
+        if "|" in private_metadata:
+            message_ts, channel_id = private_metadata.split("|", 1)
+        else:
+            message_ts = private_metadata
+            channel_id = body['user']['id']  # fallback to DM
+        
+        # Extract filter values from the modal state
+        filter_values = extract_filter_values_from_modal(view['state']['values'])
+        
+        # Get the original DataFrame from cache
+        df = global_original_dataframe_cache.get(message_ts)
+        if df is None:
+            client.chat_postMessage(
+                channel=channel_id,
+                text="Sorry, I couldn't retrieve the data for filtering. The query might have expired or been cleared.",
+                ephemeral=True
+            )
+            return
+        
+        # Apply filters
+        filtered_df, applied_filters = apply_pandas_filters(df, filter_values)
+        
+        # Create filtered result message
+        result_blocks = create_filtered_result_message(filtered_df, applied_filters, len(df))
+        
+        # Post the filtered results as a new message in main channel
+        response = client.chat_postMessage(
+            channel=channel_id,
+            text="Here are your filtered results:",
+            blocks=result_blocks
+        )
+        
+        # Cache both the filtered and original DataFrames for the new message
+        new_message_ts = response['ts']
+        global_dataframe_cache[new_message_ts] = filtered_df
+        global_original_dataframe_cache[new_message_ts] = df
+        
+        # Cache the current filter values for the new message
+        global_current_filters_cache[new_message_ts] = filter_values
+        
+        # Also cache the original SQL query for the new message
+        original_sql = global_sql_cache.get(message_ts)
+        if original_sql:
+            global_sql_cache[new_message_ts] = original_sql
+        
+        if DEBUG:
+            print(f"Applied filters via modal submission, cached filtered DataFrame with new message_ts: {new_message_ts}")
+            
+    except Exception as e:
+        print(f"Error handling filter modal submission: {e}")
+        client.chat_postMessage(
+            channel=channel_id,
+            text=f"An error occurred while applying filters: {e}",
             ephemeral=True
         )
 
@@ -1853,8 +1927,11 @@ def handle_filter_data_button_click(ack, body, client):
         return
     
     try:
-        # Create and open the filter modal using the original DataFrame
-        modal = create_filter_modal(original_df, message_ts, channel_id)
+        # Get current filters for this message (if any)
+        current_filters = global_current_filters_cache.get(message_ts, {})
+        
+        # Create and open the filter modal using the original DataFrame and current filters
+        modal = create_filter_modal(original_df, message_ts, channel_id, current_filters)
         client.views_open(
             trigger_id=body["trigger_id"],
             view=modal
