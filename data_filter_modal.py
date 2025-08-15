@@ -55,7 +55,9 @@ def analyze_dataframe_for_filters(df):
         if df[col].dtype == 'object' and col not in filters_available["date_columns"]:
             unique_vals = df[col].nunique()
             if 2 <= unique_vals <= 50:  # Expanded range for filter options (was 20, now 50)
-                filters_available["categorical_columns"][col] = sorted(df[col].unique().tolist())
+                # Filter out None values before sorting to avoid comparison errors
+                unique_values = [val for val in df[col].unique().tolist() if val is not None]
+                filters_available["categorical_columns"][col] = sorted(unique_values)
     
     # Check for numeric columns that could be filtered by threshold
     for col in df.columns:
@@ -75,11 +77,21 @@ def analyze_dataframe_for_filters(df):
     return filters_available
 
 
-def create_filter_modal(df, message_ts, channel_id=None):
+def create_filter_modal(df, message_ts, channel_id=None, current_filters=None):
     """
     Create a dynamic filter modal based on the DataFrame structure
+    
+    Args:
+        df: DataFrame to analyze for filter options
+        message_ts: Message timestamp for caching
+        channel_id: Slack channel ID
+        current_filters: Dict of current filter values to pre-populate the modal
     """
     filters_available = analyze_dataframe_for_filters(df)
+    
+    # Initialize current_filters if not provided
+    if current_filters is None:
+        current_filters = {}
     
     blocks = [
         {
@@ -124,16 +136,40 @@ def create_filter_modal(df, message_ts, channel_id=None):
                 for opt in options
             ]
             
+            # Create the multi-select element
+            element = {
+                "type": "multi_static_select",
+                "action_id": f"{col_name.lower()}_select",
+                "placeholder": {"type": "plain_text", "text": f"Select {col_name.lower()}"},
+                "options": slack_options
+            }
+            
+            # Add initial values if current filters exist for this column
+            current_filter_key = f"{col_name.lower()}_select"
+            if current_filter_key in current_filters and current_filters[current_filter_key]:
+                initial_options = []
+                for filter_value in current_filters[current_filter_key]:
+                    # Handle both dict format (from Slack) and string format
+                    if isinstance(filter_value, dict) and 'value' in filter_value:
+                        value = filter_value['value']
+                    else:
+                        value = str(filter_value)
+                    
+                    # Only add if the value exists in available options
+                    if value in [str(opt) for opt in options]:
+                        initial_options.append({
+                            "text": {"type": "plain_text", "text": value},
+                            "value": value
+                        })
+                
+                if initial_options:
+                    element["initial_options"] = initial_options
+            
             blocks.append({
                 "type": "input",
                 "block_id": f"{col_name.lower()}_filter_block",
                 "label": {"type": "plain_text", "text": col_name.replace('_', ' ').title()},
-                "element": {
-                    "type": "multi_static_select",
-                    "action_id": f"{col_name.lower()}_select",
-                    "placeholder": {"type": "plain_text", "text": f"Select {col_name.lower()}"},
-                    "options": slack_options
-                },
+                "element": element,
                 "optional": True
             })
     
@@ -143,28 +179,42 @@ def create_filter_modal(df, message_ts, channel_id=None):
     
     for sales_col in sales_columns[:2]:  # Limit to first 2 sales columns
         # Add minimum threshold
+        min_element = {
+            "type": "plain_text_input",
+            "action_id": f"{sales_col.lower()}_min_threshold",
+            "placeholder": {"type": "plain_text", "text": f"e.g., 100,000"}
+        }
+        
+        # Add initial value if current filters exist
+        min_filter_key = f"{sales_col.lower()}_min_threshold"
+        if min_filter_key in current_filters and current_filters[min_filter_key]:
+            min_element["initial_value"] = str(current_filters[min_filter_key])
+        
         blocks.append({
             "type": "input",
             "block_id": f"{sales_col.lower()}_min_threshold_block",
             "label": {"type": "plain_text", "text": f"Minimum {sales_col.replace('_', ' ').title()}"},
-            "element": {
-                "type": "plain_text_input",
-                "action_id": f"{sales_col.lower()}_min_threshold",
-                "placeholder": {"type": "plain_text", "text": f"e.g., 100,000"}
-            },
+            "element": min_element,
             "optional": True
         })
         
         # Add maximum threshold
+        max_element = {
+            "type": "plain_text_input",
+            "action_id": f"{sales_col.lower()}_max_threshold",
+            "placeholder": {"type": "plain_text", "text": f"e.g., 1,000,000"}
+        }
+        
+        # Add initial value if current filters exist
+        max_filter_key = f"{sales_col.lower()}_max_threshold"
+        if max_filter_key in current_filters and current_filters[max_filter_key]:
+            max_element["initial_value"] = str(current_filters[max_filter_key])
+        
         blocks.append({
             "type": "input",
             "block_id": f"{sales_col.lower()}_max_threshold_block",
             "label": {"type": "plain_text", "text": f"Maximum {sales_col.replace('_', ' ').title()}"},
-            "element": {
-                "type": "plain_text_input",
-                "action_id": f"{sales_col.lower()}_max_threshold",
-                "placeholder": {"type": "plain_text", "text": f"e.g., 1,000,000"}
-            },
+            "element": max_element,
             "optional": True
         })
     
@@ -495,6 +545,9 @@ def create_filtered_result_message(filtered_df, applied_filters, original_count)
     
     # Add filtered data table
     if len(filtered_df) > 0:
+        # Get the actual table text and number of rows displayed
+        table_text, actual_rows_displayed = _get_safe_table_text(filtered_df, "", min(len(filtered_df), 25))
+        
         blocks.append({
             "type": "rich_text",
             "elements": [
@@ -512,15 +565,15 @@ def create_filtered_result_message(filtered_df, applied_filters, original_count)
                     "elements": [
                         {
                             "type": "text",
-                            "text": _get_safe_table_text(filtered_df, "", min(len(filtered_df), 25))
+                            "text": table_text
                         }
                     ]
                 }
             ]
         })
         
-        # Add action buttons for the filtered results
-        blocks.append(get_action_buttons_block(include_show_sql=False, data_size=len(filtered_df)))
+        # Add action buttons for the filtered results using the actual rows displayed
+        blocks.append(get_action_buttons_block(include_show_sql=False, data_size=len(filtered_df), selected_row_limit=actual_rows_displayed))
     else:
         blocks.append({
             "type": "section",
