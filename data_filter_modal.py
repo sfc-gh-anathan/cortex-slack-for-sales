@@ -42,7 +42,10 @@ def analyze_dataframe_for_filters(df):
     # Check for date columns
     for col in df.columns:
         if 'DATE' in col.upper() or 'PERIOD' in col.upper():
-            if df[col].dtype == 'object':
+            # Check if it's already a datetime type
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                filters_available["date_columns"].append(col)
+            elif df[col].dtype == 'object':
                 # Try to convert to datetime to verify it's a date column
                 try:
                     pd.to_datetime(df[col].head(), errors='raise')
