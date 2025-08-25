@@ -4,14 +4,14 @@ description: |
   Performance metrics are calculated monthly, allowing employees to be high performers 
   in some months but not others based on seasonal factors and deal timing.
 tables:
-  # Monthly Performance Aggregates View - Each record represents one employee's performance for one month
   - name: SALES_SEMANTIC_VIEW
     base_table:
       database: SLACK_SALES_DEMO
       schema: SLACK_SCHEMA
       table: SALES_SEMANTIC_VIEW
     primary_key:
-      columns: [PERFORMANCE_ID]
+      columns:
+        - PERFORMANCE_ID
     dimensions:
       - name: PERFORMANCE_ID
         expr: PERFORMANCE_ID
@@ -59,9 +59,9 @@ tables:
           - 'Sales Rep' (Individual Sales Representative)
           Note: When referring to "managers" or "management roles", use 'Sales Manager', 'Regional Manager', 'VP Sales', or 'CRO'.
         synonyms:
-          - title 
+          - title
           - position
-          - job_title 
+          - job_title
           - sales_role
           - job_title
       - name: TERRITORY
@@ -185,21 +185,29 @@ tables:
           - quarter
           - qtr
     time_dimensions:
-      - name: PERIOD_DATE
+      - name: PERFORMANCE_DATE
         expr: PERIOD_DATE
-        data_type: DATE
-        description: First day of the performance period month
+        description: First date of the performance period month. Not a day, but a date.
         synonyms:
           - performance_date
           - period_start
           - month_date
+        data_type: DATE
+        sample_values:
+          - '2023-02-01'
+          - '2023-06-01'
+          - '2023-07-01'
       - name: HIRE_DATE
         expr: HIRE_DATE
-        data_type: DATE
-        description: Date when the employee was hired
+        description: Date when the employee was hired. Not a day, but a date.
         synonyms:
           - start_date
           - employment_start
+        data_type: DATE
+        sample_values:
+          - '2020-01-15'
+          - '2020-04-15'
+          - '2021-01-10'
     facts:
       - name: SALES_AMOUNT
         expr: SALES_AMOUNT
@@ -265,15 +273,14 @@ tables:
       - performance_data
       - sales_results
       - monthly_performance
-
-  # Individual Transaction Details View  
   - name: TRANSACTION_SEMANTIC_VIEW
     base_table:
       database: SLACK_SALES_DEMO
       schema: SLACK_SCHEMA
       table: TRANSACTION_SEMANTIC_VIEW
     primary_key:
-      columns: [TRANSACTION_ID]
+      columns:
+        - TRANSACTION_ID
     dimensions:
       - name: TRANSACTION_ID
         expr: TRANSACTION_ID
@@ -359,19 +366,27 @@ tables:
     time_dimensions:
       - name: TRANSACTION_DATE
         expr: TRANSACTION_DATE
-        data_type: DATE
-        description: Date when the transaction occurred
+        description: Date when the transaction occurred Not a day, but a date.
         synonyms:
           - sale_date
           - deal_date
           - close_date
+        data_type: DATE
+        sample_values:
+          - '2023-12-18'
+          - '2023-12-10'
+          - '2023-12-06'
       - name: CUSTOMER_ASSIGNED_DATE
         expr: CUSTOMER_ASSIGNED_DATE
-        data_type: DATE
-        description: Date when customer was assigned to the sales rep
+        description: Date when customer was assigned to the sales rep. Not a day, but a date.
         synonyms:
           - assignment_date
           - account_assignment
+        data_type: DATE
+        sample_values:
+          - '2023-12-26'
+          - '2023-08-21'
+          - '2023-03-28'
     facts:
       - name: QUANTITY
         expr: QUANTITY
@@ -416,25 +431,22 @@ tables:
       - transactions
       - deals
       - sales_data
-
-# Define relationships between the tables
 relationships:
   - name: transactions_to_employee_performance
-    leftTable: TRANSACTION_SEMANTIC_VIEW
-    rightTable: SALES_SEMANTIC_VIEW
-    joinType: left_outer
-    relationshipType: many_to_one
-    relationshipColumns:
-      - leftColumn: EMPLOYEE_ID
-        rightColumn: EMPLOYEE_ID
-      - leftColumn: TRANSACTION_YEAR
-        rightColumn: PERIOD_YEAR
-      - leftColumn: TRANSACTION_MONTH
-        rightColumn: PERIOD_MONTH
-
+    left_table: TRANSACTION_SEMANTIC_VIEW
+    right_table: SALES_SEMANTIC_VIEW
+    join_type: left_outer
+    relationship_type: many_to_one
+    relationship_columns:
+      - left_column: EMPLOYEE_ID
+        right_column: EMPLOYEE_ID
+      - left_column: TRANSACTION_YEAR
+        right_column: PERIOD_YEAR
+      - left_column: TRANSACTION_MONTH
+        right_column: PERIOD_MONTH
 verified_queries:
   - name: top_performers_by_region
-    question: "Who are the top 5 sales reps by total sales in each region for 2023?"
+    question: Who are the top 5 sales reps by total sales in each region for 2023?
     use_as_onboarding_question: true
     sql: |
       SELECT region, full_name, sum(sales_amount) as total_sales,
@@ -446,9 +458,8 @@ verified_queries:
       ORDER BY region, total_sales DESC
     verified_by: System
     verified_at: 1750300000
-
   - name: quota_performance_by_manager
-    question: "What is the average quota attainment for each manager's team?"
+    question: What is the average quota attainment for each manager's team?
     use_as_onboarding_question: true
     sql: |
       SELECT manager_name, 
@@ -460,9 +471,8 @@ verified_queries:
       ORDER BY avg_quota_attainment DESC
     verified_by: System
     verified_at: 1750300100
-
   - name: percentage_employees_meeting_quota
-    question: "What percentage of salespeople met their quota?"
+    question: What percentage of salespeople met their quota?
     use_as_onboarding_question: true
     sql: |
       WITH employee_performance AS (
@@ -479,9 +489,8 @@ verified_queries:
       FROM employee_performance
     verified_by: System
     verified_at: 1750300150
-
   - name: manager_performance_by_role
-    question: "How are sales managers performing compared to regional managers?"
+    question: How are sales managers performing compared to regional managers?
     use_as_onboarding_question: true
     sql: |
       SELECT 
@@ -495,9 +504,8 @@ verified_queries:
       ORDER BY avg_quota_attainment DESC
     verified_by: System
     verified_at: 1750300200
-
   - name: top_sales_managers
-    question: "Who are the top performing sales managers this year?"
+    question: Who are the top performing sales managers this year?
     use_as_onboarding_question: true
     sql: |
       SELECT 
@@ -513,9 +521,8 @@ verified_queries:
       LIMIT 10
     verified_by: System
     verified_at: 1750300250
-
   - name: product_performance_analysis
-    question: "Which Snowflake product categories generate the highest average deal values?"
+    question: Which Snowflake product categories generate the highest average deal values?
     use_as_onboarding_question: true
     sql: |
       SELECT product_category, 
@@ -528,9 +535,8 @@ verified_queries:
       ORDER BY avg_deal_value DESC
     verified_by: System
     verified_at: 1750300200
-
   - name: sales_cycle_analysis
-    question: "What is the average sales cycle length by deal size category?"
+    question: What is the average sales cycle length by deal size category?
     use_as_onboarding_question: false
     sql: |
       SELECT deal_size_category,
@@ -542,40 +548,8 @@ verified_queries:
       ORDER BY avg_sales_cycle_days DESC
     verified_by: System
     verified_at: 1750300300
-
-custom_instructions: |-
+custom_instructions: |
   ### SALES PERFORMANCE ANALYSIS TOOL ###
 
-  # 1. PURPOSE
-  # This tool provides access to Snowflake sales organization data including employee hierarchy, 
-  # performance metrics, compensation, and individual transaction details.
-
-  # 2. TWO MAIN DATA SOURCES
-  # - SALES_SEMANTIC_VIEW: Monthly performance aggregates with hierarchy
-  # - TRANSACTION_SEMANTIC_VIEW: Individual deal-level transaction data
-
-  # 3. KEY RELATIONSHIPS
-  # Both tables can be joined on EMPLOYEE_ID and time periods (YEAR/MONTH) to analyze:
-  # - How individual transactions roll up to monthly performance
-  # - Manager performance vs direct report transactions
-  # - Product mix impact on quota attainment
-
-  # 4. IMPORTANT: EMPLOYEE vs RECORD COUNTING
-  # SALES_SEMANTIC_VIEW contains monthly performance records (one per employee per month).
-  # When asked about "salespeople", "employees", or "individuals":
-  # - ALWAYS use COUNT(DISTINCT employee_id) or GROUP BY employee_id first
-  # - For employee-level analysis, aggregate monthly data using AVG() or SUM()
-  # - Example: "percentage of salespeople meeting quota" = employees with AVG(quota_attainment) >= 1.0
-
-  # 5. COMMON ANALYSIS PATTERNS
-  # - Manager rollups: Use hierarchy fields (MANAGER_NAME, ROLE_CATEGORY)
-  # - Quota analysis: Use QUOTA_ATTAINMENT, QUOTA_PERFORMANCE_BAND
-  # - Product analysis: Use PRODUCT_CATEGORY from transaction view
-  # - Compensation: Use COMMISSION_EARNED, TOTAL_COMPENSATION
-  # - Territory analysis: Use TERRITORY, REGION dimensions
-  # - Employee counts: Always use COUNT(DISTINCT employee_id)
-
-  # 6. SNOWFLAKE PRODUCT CATEGORIES 
-  # The data includes realistic Snowflake products:
-  # Data Warehouse, Cortex AI, Analytics Workbench, Data Engineering, 
-  # Data Governance, Data Sharing, Developer Tools, Data Lake, Marketplace
+  ALWAYS RETURN THE MINIMUM NUMBER OF FIELDS TO ANSWER QUESTIONS.
+  ALWAYS RETURN DATES IN YYYY-MM-DD FORMAT
