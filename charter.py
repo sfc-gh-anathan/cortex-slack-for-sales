@@ -113,8 +113,7 @@ def _get_kwargs(function_arguments) -> dict:
             new_arg_value = arg_value
         kwargs[arg_name] = new_arg_value  # Store the processed argument
     
-    # Fix common parameter issues
-    # If x or y is a list, use only the first element (most common case)
+    # Fix parameter type issues
     if 'x' in kwargs and isinstance(kwargs['x'], list):
         print(f"⚠️ FIXING: x parameter was a list {kwargs['x']}, using first element")
         kwargs['x'] = kwargs['x'][0] if kwargs['x'] else None
@@ -123,12 +122,12 @@ def _get_kwargs(function_arguments) -> dict:
         print(f"⚠️ FIXING: y parameter was a list {kwargs['y']}, using first element")
         kwargs['y'] = kwargs['y'][0] if kwargs['y'] else None
     
-    # Fix facet_col_wrap - must be an integer, not float
+    # Convert facet_col_wrap to integer
     if 'facet_col_wrap' in kwargs and isinstance(kwargs['facet_col_wrap'], float):
         print(f"⚠️ FIXING: facet_col_wrap parameter was a float {kwargs['facet_col_wrap']}, converting to int")
         kwargs['facet_col_wrap'] = int(kwargs['facet_col_wrap'])
     
-    # Fix facet spacing for charts with many subplots
+    # Adjust facet spacing for large charts
     if 'facet_col' in kwargs and 'facet_col_wrap' in kwargs:
         # Estimate number of rows based on unique values in facet column
         try:
@@ -137,7 +136,7 @@ def _get_kwargs(function_arguments) -> dict:
                 facet_wrap = kwargs.get('facet_col_wrap', 3)
                 estimated_rows = (unique_facets + facet_wrap - 1) // facet_wrap  # Ceiling division
                 
-                # If we have many rows, adjust spacing to prevent Plotly error
+                # Prevent spacing violations in Plotly
                 if estimated_rows > 10:
                     max_spacing = 1.0 / (estimated_rows - 1) if estimated_rows > 1 else 0.02
                     safe_spacing = min(0.02, max_spacing * 0.8)  # Use 80% of max to be safe
@@ -145,10 +144,10 @@ def _get_kwargs(function_arguments) -> dict:
                     print(f"⚠️ FIXING: Many facets detected ({unique_facets} facets, ~{estimated_rows} rows), setting facet_row_spacing to {safe_spacing:.4f}")
         except Exception as e:
             print(f"⚠️ WARNING: Could not estimate facet spacing: {e}")
-            # Set a conservative default
+            # Use conservative default spacing
             kwargs['facet_row_spacing'] = 0.01
     
-    # Fix invalid column references (AI trying to create computed columns)
+    # Fix invalid column references
     if 'x' in kwargs and isinstance(kwargs['x'], str):
         if 'str(' in kwargs['x'] or 'for row in' in kwargs['x'] or '+' in kwargs['x']:
             print(f"⚠️ FIXING: Invalid x column reference '{kwargs['x']}', defaulting to PERIOD_QUARTER")
@@ -159,7 +158,7 @@ def _get_kwargs(function_arguments) -> dict:
             print(f"⚠️ FIXING: Invalid y column reference '{kwargs['y']}', defaulting to AVG_QUOTA_ATTAINMENT")
             kwargs['y'] = 'AVG_QUOTA_ATTAINMENT'
     
-    # For time-series data, if we have separate year/quarter columns, prefer quarter for x-axis
+    # Optimize time-series visualization
     if 'x' in kwargs and kwargs['x'] == 'PERIOD_YEAR' and 'PERIOD_QUARTER' in [kwargs.get('color'), kwargs.get('facet_col')]:
         print("⚠️ FIXING: Swapping PERIOD_YEAR to PERIOD_QUARTER for better time-series visualization")
         kwargs['x'] = 'PERIOD_QUARTER'
@@ -190,35 +189,35 @@ def _plot_with_px(name: str, data_frame, **kwargs):
     if func is None:
         raise ValueError(f"No Plotly Express function found for key '{name}'")
 
-    # Pre-process datetime columns to avoid Plotly datetime bugs
+    # Convert datetime columns for consistent rendering
     processed_data = data_frame.copy()
     if 'x' in kwargs:
         x_col = kwargs['x']
         if x_col in processed_data.columns and processed_data[x_col].dtype.name.startswith('datetime'):
-            # Convert datetime to string format for plotting
+            # Convert to string format
             processed_data[x_col] = processed_data[x_col].dt.strftime('%Y-%m')
             print(f"Converted datetime column '{x_col}' to string format for plotting")
     
-    fig = func(processed_data, **kwargs)  # Generate the Plotly figure
+    fig = func(processed_data, **kwargs)
     
-    # Add dataset description and enhance chart information
+    # Enhance chart with dataset information
     data_description = f"Dataset: {processed_data.shape[0]} records across {processed_data.shape[1]} columns"
     
-    # Get the original prompt and sampling info from the ai_plot function call context
+    # Get context information
     prompt_info = getattr(_plot_with_px, '_current_prompt', None)
     was_sampled = getattr(_plot_with_px, '_was_sampled', False)
     original_size = getattr(_plot_with_px, '_original_size', len(data_frame))
     
-    # Add sampling info to data description if applicable
+    # Include sampling information
     final_data_description = data_description
     if was_sampled:
         final_data_description += f" (Showing {len(data_frame):,} of {original_size:,} total records)"
     
     if 'title' in kwargs:
-        # Enhance the title with prompt and dataset info (keep short to avoid filename issues)
+        # Add context to existing title
         title_parts = [kwargs['title']]
         if prompt_info:
-            # Truncate long prompts to prevent filename issues
+            # Truncate long prompts
             short_prompt = prompt_info[:50] + "..." if len(prompt_info) > 50 else prompt_info
             title_parts.append(f"<i>Question: {short_prompt}</i>")
         title_parts.append(f"<sub>{final_data_description}</sub>")
