@@ -112,6 +112,33 @@ def _get_kwargs(function_arguments) -> dict:
         else:
             new_arg_value = arg_value
         kwargs[arg_name] = new_arg_value  # Store the processed argument
+    
+    # Fix common parameter issues
+    # If x or y is a list, use only the first element (most common case)
+    if 'x' in kwargs and isinstance(kwargs['x'], list):
+        print(f"⚠️ FIXING: x parameter was a list {kwargs['x']}, using first element")
+        kwargs['x'] = kwargs['x'][0] if kwargs['x'] else None
+    
+    if 'y' in kwargs and isinstance(kwargs['y'], list):
+        print(f"⚠️ FIXING: y parameter was a list {kwargs['y']}, using first element")
+        kwargs['y'] = kwargs['y'][0] if kwargs['y'] else None
+    
+    # Fix invalid column references (AI trying to create computed columns)
+    if 'x' in kwargs and isinstance(kwargs['x'], str):
+        if 'str(' in kwargs['x'] or 'for row in' in kwargs['x'] or '+' in kwargs['x']:
+            print(f"⚠️ FIXING: Invalid x column reference '{kwargs['x']}', defaulting to PERIOD_QUARTER")
+            kwargs['x'] = 'PERIOD_QUARTER'
+    
+    if 'y' in kwargs and isinstance(kwargs['y'], str):
+        if 'str(' in kwargs['y'] or 'for row in' in kwargs['y'] or '+' in kwargs['y']:
+            print(f"⚠️ FIXING: Invalid y column reference '{kwargs['y']}', defaulting to AVG_QUOTA_ATTAINMENT")
+            kwargs['y'] = 'AVG_QUOTA_ATTAINMENT'
+    
+    # For time-series data, if we have separate year/quarter columns, prefer quarter for x-axis
+    if 'x' in kwargs and kwargs['x'] == 'PERIOD_YEAR' and 'PERIOD_QUARTER' in [kwargs.get('color'), kwargs.get('facet_col')]:
+        print("⚠️ FIXING: Swapping PERIOD_YEAR to PERIOD_QUARTER for better time-series visualization")
+        kwargs['x'] = 'PERIOD_QUARTER'
+    
     return kwargs
 
 
@@ -390,27 +417,17 @@ def ai_plot(session: Session, original_prompt: str, data: pd.DataFrame):
 
     # System prompt providing context for the AI's role in visualization selection.
     system_prompt = '''
-    Your role is to decide how best to visualize a dataset in Python
-    for business intelligence analysts and stakeholders.
+    You choose Plotly Express charts. Keep it simple.
     
-    You are to receive a representative sample of the dataset, 
-    with all columns and some rows.
+    Rules:
+    1. Time trends = px.line (time on x-axis, metric on y-axis, categories as color)
+    2. Category comparison = px.bar 
+    3. Distribution = px.histogram
+    4. Correlation = px.scatter
     
-    You will also receive the question the user asked the "Analyst Agent".
+    DO NOT include 'data_frame' or 'df' in your arguments.
     
-    Your goal is, based on the content present, to decide which Plotly Express 
-    visualization to use and return the appropriate function name and arguments.
-    Assume the dataframe is always called 'df' and you do not need to supply this argument.
-    Assume we have imported the Plotly Express library as px.
-
-    You should try to make the visualization "Scrollable" if possible (for example, in the case of
-    bar charts), so that the user is able to easily consume the information. This may mean reducing the
-    number of immediately visible elements.
-
-    You are one agent as part of a larger collection of agents, 
-    which you will communicate with, and it is integral that you provide
-    only the requested output such that the "plotly agent" can take your
-    function and arguments and build the visualization for the user.
+    For the data you see, pick the simplest chart that answers the question.
     '''
     
     # User-specific prompt, including the original question and a preview of the dataset.
@@ -469,7 +486,7 @@ def ai_plot(session: Session, original_prompt: str, data: pd.DataFrame):
         'response_format': response_format  # Ensures AI returns structured output.
     }
     
-    model = os.getenv('MODEL', 'claude-3-5-sonnet')  # Use model from environment variable
+    model = os.getenv('MODEL', 'claude-4-sonnet')  # Use model from environment variable
     
     # SQL query to invoke the AI model via Snowflake Cortex.
     query = f"""
@@ -501,6 +518,11 @@ def ai_plot(session: Session, original_prompt: str, data: pd.DataFrame):
 
     # Convert function arguments to the correct types.
     kwargs = _get_kwargs(function_args)
+    
+    # Force line chart for time-series data patterns
+    if ('PERIOD_QUARTER' in str(kwargs.get('x', '')) or 'PERIOD_YEAR' in str(kwargs.get('x', ''))) and 'MANAGER_NAME' in str(kwargs.get('color', '')):
+        print("⚠️ FIXING: Detected time-series pattern, forcing px.line chart")
+        function_name = 'line'
 
     print('Plotting with Kwargs:')
     print(json.dumps(kwargs, indent=4))
