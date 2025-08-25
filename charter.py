@@ -123,6 +123,31 @@ def _get_kwargs(function_arguments) -> dict:
         print(f"⚠️ FIXING: y parameter was a list {kwargs['y']}, using first element")
         kwargs['y'] = kwargs['y'][0] if kwargs['y'] else None
     
+    # Fix facet_col_wrap - must be an integer, not float
+    if 'facet_col_wrap' in kwargs and isinstance(kwargs['facet_col_wrap'], float):
+        print(f"⚠️ FIXING: facet_col_wrap parameter was a float {kwargs['facet_col_wrap']}, converting to int")
+        kwargs['facet_col_wrap'] = int(kwargs['facet_col_wrap'])
+    
+    # Fix facet spacing for charts with many subplots
+    if 'facet_col' in kwargs and 'facet_col_wrap' in kwargs:
+        # Estimate number of rows based on unique values in facet column
+        try:
+            if hasattr(processed_data, 'columns') and kwargs['facet_col'] in processed_data.columns:
+                unique_facets = processed_data[kwargs['facet_col']].nunique()
+                facet_wrap = kwargs.get('facet_col_wrap', 3)
+                estimated_rows = (unique_facets + facet_wrap - 1) // facet_wrap  # Ceiling division
+                
+                # If we have many rows, adjust spacing to prevent Plotly error
+                if estimated_rows > 10:
+                    max_spacing = 1.0 / (estimated_rows - 1) if estimated_rows > 1 else 0.02
+                    safe_spacing = min(0.02, max_spacing * 0.8)  # Use 80% of max to be safe
+                    kwargs['facet_row_spacing'] = safe_spacing
+                    print(f"⚠️ FIXING: Many facets detected ({unique_facets} facets, ~{estimated_rows} rows), setting facet_row_spacing to {safe_spacing:.4f}")
+        except Exception as e:
+            print(f"⚠️ WARNING: Could not estimate facet spacing: {e}")
+            # Set a conservative default
+            kwargs['facet_row_spacing'] = 0.01
+    
     # Fix invalid column references (AI trying to create computed columns)
     if 'x' in kwargs and isinstance(kwargs['x'], str):
         if 'str(' in kwargs['x'] or 'for row in' in kwargs['x'] or '+' in kwargs['x']:
@@ -281,51 +306,16 @@ def _plot_with_px(name: str, data_frame, **kwargs):
                 )
             )
     
-    # Add value labels only for high/low data points to avoid clutter
+    # Enhanced hover template for better user experience
     if 'y' in kwargs:
         y_col = kwargs['y']
         if y_col in processed_data.columns:
-            # Find min and max values and their indices
-            min_idx = processed_data[y_col].idxmin()
-            max_idx = processed_data[y_col].idxmax()
-            min_val = processed_data[y_col].min()
-            max_val = processed_data[y_col].max()
-            
-            # Helper function to format currency with abbreviations
-            def format_currency(value):
-                if abs(value) >= 1_000_000_000:
-                    return f'${value/1_000_000_000:.1f}B'
-                elif abs(value) >= 1_000_000:
-                    return f'${value/1_000_000:.1f}M'
-                elif abs(value) >= 1_000:
-                    return f'${value/1_000:.0f}K'
-                else:
-                    return f'${value:.0f}'
-            
-            # Create text labels - only show for min/max points
-            text_labels = [''] * len(processed_data)  # Empty strings for all points
-            text_labels[min_idx] = f'LOW: {format_currency(min_val)}'
-            text_labels[max_idx] = f'HIGH: {format_currency(max_val)}'
-            
-            # Update traces with selective labeling
-            # Only set mode for chart types that support it (scatter, line, etc.)
+            # Update traces with enhanced hover information only
             trace_updates = {
-                'text': text_labels,
-                'textfont': dict(size=11, color='darkblue', family='Arial Black'),
                 'hovertemplate': f'<b>%{{x}}</b><br>{y_col}: %{{y:,.0f}}<br><extra></extra>'  # Enhanced hover with column name
             }
             
-            # Set textposition based on chart type
-            if name in ['bar', 'histogram', 'funnel']:
-                trace_updates['textposition'] = 'outside'  # Valid for bar charts
-            else:
-                trace_updates['textposition'] = 'top center'  # Valid for scatter/line charts
-            
-            # Only add mode parameter for chart types that support it
-            if name in ['scatter', 'line', 'area', 'scatter_3d', 'line_3d', 'scatter_ternary', 'line_ternary', 
-                       'scatter_mapbox', 'line_mapbox', 'scatter_geo', 'line_geo', 'scatter_polar', 'line_polar']:
-                trace_updates['mode'] = 'lines+markers+text' if 'markers' in str(kwargs) else 'lines+text'
-            
+            # Apply the updates to all traces
             fig.update_traces(**trace_updates)
     
     # Fallback hover formatting for traces without specific formatting
@@ -510,7 +500,18 @@ def ai_plot(session: Session, original_prompt: str, data: pd.DataFrame):
     res = session.sql(query).collect()
 
     # Parse the AI response and extract structured output.
-    output = json.loads(res[0][0]).get('structured_output')[0].get('raw_message')
+    try:
+        response_data = json.loads(res[0][0])
+        structured_output = response_data.get('structured_output')
+        if not structured_output or len(structured_output) == 0:
+            raise ValueError("No structured output found in AI response")
+        output = structured_output[0].get('raw_message')
+        if not output:
+            raise ValueError("No raw_message found in structured output")
+    except (IndexError, KeyError, TypeError, json.JSONDecodeError) as e:
+        print(f"Error parsing AI response: {e}")
+        print(f"Raw response: {res[0][0] if res and len(res) > 0 else 'No response'}")
+        return _create_fallback_chart(data, original_prompt)
 
     # Extract function name and arguments from the response.
     function_args = output.get('arguments')
