@@ -12,8 +12,7 @@ import requests
 import tempfile
 import io
 
-# Import experimental intelligent charting (unused but kept for compatibility)
-from _chart_utils_experimental import create_intelligent_chart
+# Experimental charting removed - application uses charter.py (Plotly) instead
 # Import AI-powered charting
 from charter import ai_plot
 # Import data filter modal functionality
@@ -30,9 +29,7 @@ from data_filter_modal import (
 
 load_dotenv()
 
-# =============================================================================
 # CURRENT USER CONFIGURATION FOR ENTITLEMENT-BASED FILTERING
-# =============================================================================
 # Set this to the email of the current user to demonstrate entitlement filtering
 # All query results will be filtered based on this user's access level and hierarchy
 
@@ -42,7 +39,6 @@ CURRENT_USER_EMAIL = "sarah.johnson@company.com"    # 1. CRO (TOP) - Reports to:
 # CURRENT_USER_EMAIL = "robert.wilson@company.com"    # 3. Regional Manager - Reports to: Michael Chen - Can see West Coast region
 # CURRENT_USER_EMAIL = "patricia.kim@company.com"     # 4. Sales Manager - Reports to: Robert Wilson - Can see California North team
 # CURRENT_USER_EMAIL = "addison.wells@company.com"    # 5. Sales Rep (BOTTOM) - Reports to: Patricia Kim - Can see only own data
-# =============================================================================
 
 # --- Environment Variables ---
 ACCOUNT = os.getenv("ACCOUNT")
@@ -55,45 +51,37 @@ WAREHOUSE = os.getenv("WAREHOUSE")
 SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 AGENT_ENDPOINT = os.getenv("AGENT_ENDPOINT")
-SEMANTIC_MODEL = os.getenv("SEMANTIC_MODEL") # CORRECTED: Typo fixed here
+SEMANTIC_MODEL = os.getenv("SEMANTIC_MODEL")
 SEARCH_SERVICE = os.getenv("SEARCH_SERVICE")
 RSA_PRIVATE_KEY_PATH = os.getenv("RSA_PRIVATE_KEY_PATH")
 MODEL = os.getenv("MODEL")
 
-# --- Environment Variable Validation (Added for Robustness) ---
+# Environment Variable Validation
 required_env_vars = ["ACCOUNT", "HOST", "DEMO_USER", "DEMO_DATABASE", "DEMO_SCHEMA", "DEMO_USER_ROLE", "WAREHOUSE", "SLACK_APP_TOKEN", "SLACK_BOT_TOKEN", "AGENT_ENDPOINT", "SEMANTIC_MODEL", "SEARCH_SERVICE", "RSA_PRIVATE_KEY_PATH", "MODEL"]
 for var in required_env_vars:
     if not os.getenv(var):
         print(f"Error: Required environment variable '{var}' is not set. Please check your .env file.")
-        exit(1) # Exit if essential environment variables are missing
+        exit(1)
 
-DEBUG = True # Set to True for more verbose console output to see debug prints
+DEBUG = True
 
-# --- Initializes Slack App ---
+# Initialize Slack App
 app = App(token=SLACK_BOT_TOKEN)
 
-# --- Global In-Memory Cache for SQL Queries and DataFrames ---
-# WARNING: In a production environment, this should be replaced with a more robust,
-# persistent, and thread-safe caching mechanism (e.g., Redis, database)
-# to handle multiple concurrent users and bot restarts.
+# Global In-Memory Cache - Replace with Redis/database for production
 global_sql_cache = {}
-global_dataframe_cache = {}  # Cache for DataFrames used in filtering
-global_original_dataframe_cache = {}  # Cache for original unfiltered DataFrames
-global_current_filters_cache = {}  # Cache for current active filters per message
+global_dataframe_cache = {}
+global_original_dataframe_cache = {}
+global_current_filters_cache = {}
 SQL_SHOW_BUTTON_ACTION_ID = "show_full_sql_query_button"
 REFINE_QUERY_BUTTON_ACTION_ID = "refine_query_button"
 REFINE_PROMPT_MODAL_ACTION_ID = "refine_prompt_modal"
-RENDER_CHART_BUTTON_ACTION_ID = "ai_chart_button"  # Now uses AI-powered charting
+RENDER_CHART_BUTTON_ACTION_ID = "ai_chart_button"
 DOWNLOAD_DATA_BUTTON_ACTION_ID = "download_data_button"
 ROW_LIMIT_DROPDOWN_ACTION_ID = "row_limit_select"
 
-# Global variable to store the last user prompt
 last_user_prompt_global = ""
-
-# Global variable to store refinement information per message
-global_refinement_cache = {}  # {message_ts: {"needs_refinement": bool, "suggestions": str}}
-
-# Global variable to preserve row limit during prompt refinement
+global_refinement_cache = {}
 preserved_row_limit_for_refinement = None
 
 
