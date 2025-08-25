@@ -45,6 +45,44 @@ The master table containing all sales employees and their organizational informa
 4. **Sales Manager** - Reports to Regional Manager, manages teams
 5. **Sales Rep** - Reports to Sales Manager, individual contributors
 
+**Sample Organizational Chart**:
+```
+CRO (Sarah Johnson)
+├── VP Sales West (Michael Chen)
+│   ├── Regional Manager West Coast (Robert Wilson)
+│   │   ├── Sales Manager CA North (Patricia Kim)
+│   │   │   ├── Sales Rep SF (Addison Wells)
+│   │   │   ├── Sales Rep Oakland (Alex Thompson)
+│   │   │   └── Sales Rep San Jose (Jordan Mitchell)
+│   │   └── Sales Manager CA South (William Zhang)
+│   │       ├── Sales Rep LA (Casey Parker)
+│   │       ├── Sales Rep San Diego (Morgan Bennett)
+│   │       └── Sales Rep Orange County (Riley Cooper)
+│   └── Regional Manager Pacific NW (Lisa Anderson)
+│       ├── Sales Manager Seattle (Maria Rodriguez)
+│       │   ├── Sales Rep Seattle Downtown (Avery Reed)
+│       │   └── Sales Rep Seattle Tech (Quinn Bailey)
+│       └── Sales Manager Portland (Kevin White)
+│           ├── Sales Rep Portland (Sage Rivera)
+│           └── Sales Rep Eugene (Blake Torres)
+└── VP Sales East/Central (Jennifer Davis)
+    ├── Regional Manager East Coast (Amanda Taylor)
+    │   ├── Sales Manager New York (Daniel Martin)
+    │   │   ├── Sales Rep Manhattan (Drew Ward)
+    │   │   ├── Sales Rep Brooklyn (Emery Brooks)
+    │   │   └── Sales Rep Queens (Finley Gray)
+    │   └── Sales Manager Boston (Stephanie Thompson)
+    │       ├── Sales Rep Boston (Hayden Watson)
+    │       └── Sales Rep Cambridge (Jamie Kelly)
+    └── Regional Manager Central (Michelle Garcia)
+        ├── Sales Manager Texas (Andrew Robinson)
+        │   ├── Sales Rep Houston (Kai Sanders)
+        │   └── Sales Rep Dallas (Lane Price)
+        └── Sales Manager Illinois (Lauren Clark)
+            ├── Sales Rep Chicago (Max Bennett)
+            └── Sales Rep Springfield (Nova Wood)
+```
+
 ### 2. SALES_PERFORMANCE
 Monthly performance metrics for each employee.
 
@@ -191,10 +229,13 @@ The data includes realistic Snowflake product categories:
 - **Deals Closed**: Transaction count metrics
 
 ### Compensation Metrics
-- **Base Salary**: Annual fixed compensation
-- **Commission Earned**: Variable compensation based on sales
-- **Bonus Earned**: Performance-based bonuses
-- **Total Compensation**: Combined variable compensation
+- **Base Salary**: Annual fixed compensation ($58K-$250K range depending on role)
+- **Commission Rate**: 1%-3% of sales (higher rates for individual contributors)
+- **Annual Quotas**: $320K-$45M depending on role and territory
+- **Commission Earned**: Monthly variable pay based on sales performance
+- **Bonus Earned**: Additional rewards for exceeding quota (>100% attainment)
+- **Total Compensation**: Combined variable compensation (commission + bonus)
+- **Quota Attainment**: Performance vs target (realistic 80%-130% range with seasonal variation)
 
 ### Ranking Metrics
 - **Rank in Team**: Performance ranking within immediate team
@@ -218,11 +259,18 @@ The application implements sophisticated row-level security:
 - Hierarchical access based on organizational structure
 
 ### Sample Access Patterns
-- **CRO**: Can see all data across the organization
-- **VP Sales**: Can see their region and all subordinates
-- **Regional Manager**: Can see their territory and direct reports
-- **Sales Manager**: Can see their team members
-- **Sales Rep**: Can only see their own performance data
+- **CRO (Sarah Johnson)**: Can see all data across the organization
+- **VP Sales (Michael Chen, Jennifer Davis)**: Can see their region and all subordinates
+- **Regional Manager (Robert Wilson, Lisa Anderson, etc.)**: Can see their territory and direct reports
+- **Sales Manager (Patricia Kim, William Zhang, etc.)**: Can see their team members' data including compensation
+- **Sales Rep (Addison Wells, Alex Thompson, etc.)**: Can only see their own performance and compensation data
+
+### Access Control Examples by Role
+- **Sales Reps**: Access level `SELF_ONLY` - can view only personal performance, compensation, and assigned customers
+- **Sales Managers**: Access level `DIRECT_REPORTS` - can see direct reports' data including compensation and performance metrics
+- **Regional Managers**: Access level `REGION` - can see all data within their geographic region
+- **VP Sales**: Access level `ALL` - can see company-wide data with full compensation visibility
+- **CRO**: Access level `ALL` - complete organizational visibility and administrative access
 
 ## Data Quality and Characteristics
 
