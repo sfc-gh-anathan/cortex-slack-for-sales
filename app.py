@@ -834,7 +834,38 @@ def display_agent_response(content, say, app_client, original_body):
 
     final_blocks = []
 
-    if content['sql']:
+    # Handle case where content is None or not a dictionary
+    if content is None:
+        say(
+            text="Sorry, there was an issue processing your request.",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "❌ *Request failed*\n\nThe Cortex service encountered a connection issue. This might be due to network timeout or service unavailability. Please try again."
+                    }
+                }
+            ]
+        )
+        return
+    
+    if not isinstance(content, dict):
+        say(
+            text="Sorry, there was an unexpected response format.",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "❌ *Unexpected response format*\n\nReceived an unexpected response from the Cortex service. Please try again."
+                    }
+                }
+            ]
+        )
+        return
+
+    if content.get('sql'):
         sql = content['sql']
         
         # Apply entitlement-based filtering to ALL queries
