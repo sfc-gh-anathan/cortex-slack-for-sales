@@ -119,6 +119,12 @@ class CortexChat:
             json_str = line[6:].strip()  # Remove 'data: ' prefix
             if json_str == '[DONE]':
                 return {'type': 'done'}
+            
+            # Handle both array and object formats
+            if json_str.startswith('['):
+                # This is an array format (like execution_trace)
+                data = json.loads(json_str)
+                return {'type': 'other', 'data': data}
                 
             data = json.loads(json_str)
             if data.get('object') == 'message.delta':
