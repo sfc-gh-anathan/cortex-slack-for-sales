@@ -57,25 +57,28 @@ def analyze_dataframe_for_filters(df):
     for col in df.columns:
         if df[col].dtype == 'object' and col not in filters_available["date_columns"]:
             unique_vals = df[col].nunique()
-            if 2 <= unique_vals <= 50:  # Expanded range for filter options (was 20, now 50)
+            print(f"DEBUG: Column '{col}' analysis: dtype='{df[col].dtype}', unique_vals={unique_vals}")
+            
+            # Analysis limits based on data characteristics, not column names
+            max_analysis_limit = 200  # Default limit for analysis phase
+            
+            if 2 <= unique_vals <= max_analysis_limit:
                 # Filter out None values before sorting to avoid comparison errors
                 unique_values = [val for val in df[col].unique().tolist() if val is not None]
                 filters_available["categorical_columns"][col] = sorted(unique_values)
+                print(f"DEBUG: Added '{col}' as filterable with {len(unique_values)} unique values (max analysis limit: {max_analysis_limit})")
+            else:
+                print(f"DEBUG: Skipped '{col}' - unique_vals ({unique_vals}) outside range [2-{max_analysis_limit}]")
     
     # Check for numeric columns that could be filtered by threshold
     for col in df.columns:
         if pd.api.types.is_numeric_dtype(df[col]):
             filters_available["numeric_columns"].append(col)
     
-    # Check for specific business columns
-    for col in df.columns:
-        col_upper = col.upper()
-        if 'SALES' in col_upper or 'AMOUNT' in col_upper or 'REVENUE' in col_upper:
-            filters_available["has_sales_data"] = True
-        if 'ROLE' in col_upper:
-            filters_available["has_role_data"] = True
-        if 'REGION' in col_upper:
-            filters_available["has_region_data"] = True
+    # Set metadata flags based on what data we actually found, not hardcoded column names
+    filters_available["has_sales_data"] = len(filters_available["numeric_columns"]) > 0
+    filters_available["has_role_data"] = len(filters_available["categorical_columns"]) > 0
+    filters_available["has_region_data"] = len(filters_available["categorical_columns"]) > 0
     
     return filters_available
 
@@ -131,9 +134,36 @@ def create_filter_modal(df, message_ts, channel_id=None, current_filters=None):
             }
         ])
     
-    # Categorical filters (for columns with reasonable number of options)
-    for col_name, options in filters_available["categorical_columns"].items():
-        if len(options) <= 10:  # Only show if not too many options
+    # Categorical filters (for columns with reasonable number of options) - ADD THESE FIRST
+    # Process in the order they appear in the DataFrame columns
+    categorical_columns = filters_available["categorical_columns"]
+    df_columns = list(df.columns)
+    
+    # Sort categorical columns by their position in the DataFrame
+    sorted_categorical = []
+    for col in df_columns:
+        if col in categorical_columns:
+            sorted_categorical.append((col, categorical_columns[col]))
+    
+    print(f"DEBUG: Processing {len(sorted_categorical)} categorical columns in DataFrame order: {[col for col, _ in sorted_categorical]}")
+    for col_name, options in sorted_categorical:
+        print(f"DEBUG: Column '{col_name}' has {len(options)} unique values: {options[:5]}{'...' if len(options) > 5 else ''}")
+        
+        # Smart filtering logic based on data characteristics rather than hardcoded column names
+        max_options = 50  # Default limit
+        
+        # Adjust limits based on data patterns, not hardcoded column names
+        if len(options) <= 10:
+            max_options = 50   # Always show small lists
+        elif len(options) <= 25:
+            max_options = 50   # Medium lists
+        elif len(options) <= 100:
+            max_options = 100  # Larger lists (could be names, IDs, etc.)
+        else:
+            max_options = 50   # Very large lists - stick to default
+        
+        if len(options) <= max_options:
+            print(f"DEBUG: Including '{col_name}' in filter modal with {len(options)} options (max allowed: {max_options})")
             slack_options = [
                 {"text": {"type": "plain_text", "text": str(opt)}, "value": str(opt)} 
                 for opt in options
@@ -168,35 +198,43 @@ def create_filter_modal(df, message_ts, channel_id=None, current_filters=None):
                 if initial_options:
                     element["initial_options"] = initial_options
             
-            blocks.append({
+            # Add directly to blocks array at position 1 (right after header)
+            block = {
                 "type": "input",
                 "block_id": f"{col_name.lower()}_filter_block",
                 "label": {"type": "plain_text", "text": col_name.replace('_', ' ').title()},
                 "element": element,
                 "optional": True
-            })
+            }
+            blocks.insert(1, block)  # Insert at position 1 (after header)
+            print(f"DEBUG: ✅ Added '{col_name}' filter block directly to modal at position 1")
+        else:
+            print(f"DEBUG: Excluding '{col_name}' from filter modal - too many options ({len(options)} > {max_options})")
+            continue  # Skip this column if it has too many options
     
-    # Numeric threshold filters (for financial/monetary columns)
-    sales_columns = [col for col in filters_available["numeric_columns"] 
-                    if any(keyword in col.upper() for keyword in ['SALES', 'AMOUNT', 'REVENUE', 'COMMISSION', 'TOTAL', 'EARNINGS', 'QUOTA', 'COMPENSATION', 'PRICE', 'VALUE', 'DEAL'])]
+    # Categorical blocks are now added directly above
     
-    for sales_col in sales_columns[:2]:  # Limit to first 2 sales columns
+    # Numeric threshold filters (for any numeric columns)
+    numeric_columns = filters_available["numeric_columns"]
+    print(f"DEBUG: Found {len(numeric_columns)} numeric columns for filtering: {numeric_columns}")
+    
+    for numeric_col in numeric_columns[:2]:  # Limit to first 2 numeric columns
         # Add minimum threshold
         min_element = {
             "type": "plain_text_input",
-            "action_id": f"{sales_col.lower()}_min_threshold",
+            "action_id": f"{numeric_col.lower()}_min_threshold",
             "placeholder": {"type": "plain_text", "text": f"e.g., 100,000"}
         }
         
         # Add initial value if current filters exist
-        min_filter_key = f"{sales_col.lower()}_min_threshold"
+        min_filter_key = f"{numeric_col.lower()}_min_threshold"
         if min_filter_key in current_filters and current_filters[min_filter_key]:
             min_element["initial_value"] = str(current_filters[min_filter_key])
         
         blocks.append({
             "type": "input",
-            "block_id": f"{sales_col.lower()}_min_threshold_block",
-            "label": {"type": "plain_text", "text": f"Minimum {sales_col.replace('_', ' ').title()}"},
+            "block_id": f"{numeric_col.lower()}_min_threshold_block",
+            "label": {"type": "plain_text", "text": f"Minimum {numeric_col.replace('_', ' ').title()}"},
             "element": min_element,
             "optional": True
         })
@@ -204,19 +242,19 @@ def create_filter_modal(df, message_ts, channel_id=None, current_filters=None):
         # Add maximum threshold
         max_element = {
             "type": "plain_text_input",
-            "action_id": f"{sales_col.lower()}_max_threshold",
+            "action_id": f"{numeric_col.lower()}_max_threshold",
             "placeholder": {"type": "plain_text", "text": f"e.g., 1,000,000"}
         }
         
         # Add initial value if current filters exist
-        max_filter_key = f"{sales_col.lower()}_max_threshold"
+        max_filter_key = f"{numeric_col.lower()}_max_threshold"
         if max_filter_key in current_filters and current_filters[max_filter_key]:
             max_element["initial_value"] = str(current_filters[max_filter_key])
         
         blocks.append({
             "type": "input",
-            "block_id": f"{sales_col.lower()}_max_threshold_block",
-            "label": {"type": "plain_text", "text": f"Maximum {sales_col.replace('_', ' ').title()}"},
+            "block_id": f"{numeric_col.lower()}_max_threshold_block",
+            "label": {"type": "plain_text", "text": f"Maximum {numeric_col.replace('_', ' ').title()}"},
             "element": max_element,
             "optional": True
         })
@@ -487,26 +525,15 @@ def _convert_filter_to_friendly_format(filter_desc):
         operator = comp_match.group(2)
         value = comp_match.group(3)
         
-        # Format currency values
-        if ('SALES' in comp_match.group(1) or 'AMOUNT' in comp_match.group(1) or 
-            'REVENUE' in comp_match.group(1) or 'TOTAL' in comp_match.group(1) or
-            'COST' in comp_match.group(1) or 'PRICE' in comp_match.group(1) or 
-            'VALUE' in comp_match.group(1)):
-            try:
-                numeric_value = float(value.replace(',', ''))  # Remove existing commas first
-                formatted_value = f"${numeric_value:,.0f}"
-            except ValueError:
+        # Try to format as currency/numeric for any numeric value
+        try:
+            numeric_value = float(value.replace(',', ''))  # Remove existing commas first
+            if numeric_value >= 1000:
+                formatted_value = f"${numeric_value:,.0f}"  # Format large numbers as currency
+            else:
                 formatted_value = value
-        else:
-            try:
-                # For non-currency numeric values, still add commas for readability
-                numeric_value = float(value.replace(',', ''))
-                if numeric_value >= 1000:
-                    formatted_value = f"{numeric_value:,.0f}"
-                else:
-                    formatted_value = value
-            except ValueError:
-                formatted_value = value
+        except ValueError:
+            formatted_value = value
         
         # Use mathematical symbols
         friendly_operator = operator
