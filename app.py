@@ -63,7 +63,7 @@ for var in required_env_vars:
         print(f"Error: Required environment variable '{var}' is not set. Please check your .env file.")
         exit(1)
 
-DEBUG = True
+DEBUG = False
 
 # Initialize Slack App
 app = App(token=SLACK_BOT_TOKEN)
@@ -283,9 +283,14 @@ def add_refinement_button_to_message(message_ts, channel_id, app_client):
                 data_size = None
                 for element in block.get("elements", []):
                     if element.get("action_id") == ROW_LIMIT_DROPDOWN_ACTION_ID:
-                        # This message has data, so we can determine the size
-                        # For now, we'll use a default approach
-                        data_size = 100  # Default assumption
+                        # Extract the actual data size from the dropdown options
+                        options = element.get("options", [])
+                        if options:
+                            # Get the maximum value from the dropdown options
+                            max_option = max(int(opt["value"]) for opt in options)
+                            data_size = max_option
+                        else:
+                            data_size = 100  # Fallback
                         break
                 
                 # Replace the action buttons block with one that includes the refinement button
@@ -403,31 +408,6 @@ def add_smart_refinement_button(message_ts, channel_id, refinement_suggestion, a
 
 
 
-def get_row_limit_dropdown_element(data_size=None):
-    """Create row limit dropdown element"""
-    options = []
-    valid_options = [10, 25, 50, 100, 250, 500]
-    
-    if data_size:
-        valid_options = [opt for opt in valid_options if opt <= data_size * 2]
-        if data_size not in valid_options:
-            valid_options.append(data_size)
-    
-    for value in sorted(set(valid_options)):
-        options.append({
-            "text": {"type": "plain_text", "text": f"{value} {'Row' if value == 1 else 'Rows'}"},
-            "value": str(value)
-        })
-    
-    initial_option = {"text": {"type": "plain_text", "text": "10 Rows"}, "value": "10"}
-    
-    return {
-        "type": "static_select",
-        "placeholder": {"type": "plain_text", "text": "Rows"},
-        "options": options,
-        "initial_option": initial_option,
-        "action_id": ROW_LIMIT_DROPDOWN_ACTION_ID
-    }
 
 # --- Slack Message Handlers ---
 
@@ -548,22 +528,27 @@ def get_row_limit_dropdown_element(data_size=None, selected_value=None):
     # Use selected_value if provided, otherwise preserved row limit, otherwise default to 10 rows
     default_value = str(selected_value or preserved_row_limit_for_refinement or 10)
     
-    # Base options (always include 10)
-    base_options = [10, 25, 50, 100, 200]
+    # Base options for common viewing sizes
+    base_options = [10, 25, 50, 100, 250, 500]
     
-    # Filter options to never exceed data size, but include appropriate larger options
     if data_size is not None:
+        # Filter base options to only include those <= data_size
         valid_options = [opt for opt in base_options if opt <= data_size]
-        # Always include at least 10 (or data_size if smaller)
+        
+        # Always include at least 10 (or data_size if smaller than 10)
         if not valid_options:
             valid_options = [min(10, data_size)]
         elif 10 not in valid_options and data_size >= 10:
             valid_options.insert(0, 10)
         
-        # Add the actual data size as an option if it's not already covered
-        if data_size > max(valid_options) and data_size <= 200:
+        # ALWAYS include the actual data size as the maximum option
+        if data_size not in valid_options:
             valid_options.append(data_size)
+        
+        # Sort to ensure proper order
+        valid_options = sorted(set(valid_options))
     else:
+        # If no data_size provided, use reasonable defaults
         valid_options = base_options
     
     # Create option objects
@@ -635,18 +620,65 @@ def get_refine_prompt_button_element():
         "action_id": REFINE_PROMPT_MODAL_ACTION_ID
     }
 
+def _format_refinement_suggestions(suggestions):
+    """Format refinement suggestions for better readability in the modal"""
+    if not suggestions or suggestions.strip() == "Prompt is appropriately specific.":
+        return "✅ *Your query looks good!* No refinements needed."
+    
+    # Clean up the suggestions text
+    formatted = suggestions.strip()
+    
+    # Handle numbered lists
+    if any(char.isdigit() and char in formatted[:10] for char in formatted[:10]):
+        # Split by numbers and format as bullet points
+        lines = []
+        current_line = ""
+        
+        for line in formatted.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Check if line starts with a number (like "1)", "2.", etc.)
+            if line and (line[0].isdigit() or line.startswith('- ')):
+                if current_line:
+                    lines.append(current_line)
+                current_line = f"• {line.lstrip('123456789).- ')}"
+            else:
+                if current_line:
+                    current_line += f" {line}"
+                else:
+                    current_line = line
+        
+        if current_line:
+            lines.append(current_line)
+        
+        formatted = '\n'.join(lines)
+    
+    # Handle bullet points that aren't formatted
+    elif '-' in formatted and not formatted.startswith('•'):
+        formatted = formatted.replace('- ', '• ')
+    
+           # Visual hierarchy is already provided by the modal header
+    
+    return formatted
+
 def create_refine_prompt_modal(original_prompt, refinement_suggestions):
     """Creates the modal view for prompt refinement with AI suggestions"""
+    
+    # Parse and format the refinement suggestions for better readability
+    formatted_suggestions = _format_refinement_suggestions(refinement_suggestions)
+    
     return {
         "type": "modal",
         "callback_id": "refine_prompt_modal_submit",
         "title": {
             "type": "plain_text",
-            "text": "Refine Your Prompt"
+            "text": "🔍 Refine Your Query"
         },
         "submit": {
             "type": "plain_text",
-            "text": "Submit Refined Prompt"
+            "text": "✅ Submit Refined Query"
         },
         "close": {
             "type": "plain_text",
@@ -657,8 +689,21 @@ def create_refine_prompt_modal(original_prompt, refinement_suggestions):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*Refinement Feedback:* \n{refinement_suggestions}"
+                    "text": "💡 *Your query needs some clarification to get better results:*"
                 }
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": formatted_suggestions
+                }
+            },
+            {
+                "type": "divider"
             },
             {
                 "type": "input",
@@ -670,13 +715,22 @@ def create_refine_prompt_modal(original_prompt, refinement_suggestions):
                     "multiline": True,
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "Edit your prompt based on the suggestions above..."
+                        "text": "Edit your query based on the suggestions above..."
                     }
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "Modify Your Prompt and Resubmit:"
+                    "text": "📝 Your Refined Query:"
                 }
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "💭 _Tip: Be specific about metrics, time periods, and scope for best results_"
+                    }
+                ]
             }
         ]
     }
@@ -1587,7 +1641,7 @@ def handle_render_chart_button_click(ack, body, client):
                 client.chat_update(
                     channel=channel_id,
                     ts=analyzing_ts,
-                    text="❌ Chart Rendering Error",
+                    text="❌ AI Chart generation failed",
                     blocks=[
                         {
                             "type": "rich_text",
@@ -1597,11 +1651,11 @@ def handle_render_chart_button_click(ack, body, client):
                                     "elements": [
                                         {
                                             "type": "text",
-                                            "text": "📊 ",
+                                            "text": "❌ ",
                                         },
                                         {
                                             "type": "text",
-                                            "text": f"Chart rendering failed\n\nDataset: {len(df):,} rows",
+                                            "text": f"AI Chart generation failed due to data type conflicts.\n\nDataset: {len(df):,} rows\n\nThis issue has been fixed - please try again!",
                                             "style": {
                                                 "bold": True
                                             }
@@ -1748,7 +1802,7 @@ def handle_download_data_button_click(ack, body, client):
         file_name = f"query_results_{int(time.time())}.csv"
 
         if DEBUG:
-            print(f"DEBUG: Attempting to upload file '{file_name}' to channel '{channel_id}'")
+            print(f"DEBUG: Attempting to make file '{file_name}' available for download in channel '{channel_id}'")
 
         # Capture the response from Slack API for more detailed debugging
         upload_response = client.files_upload_v2(
@@ -1762,9 +1816,9 @@ def handle_download_data_button_click(ack, body, client):
         if DEBUG:
             print(f"DEBUG: Slack upload response: {upload_response}")
             if upload_response.get('ok'):
-                print(f"DEBUG: File uploaded successfully: {upload_response.get('file', {}).get('permalink')}")
+                print(f"DEBUG: File made available for download successfully: {upload_response.get('file', {}).get('permalink')}")
             else:
-                print(f"DEBUG: File upload failed: {upload_response.get('error')}")
+                print(f"DEBUG: File download preparation failed: {upload_response.get('error')}")
         
         # Post a follow-up message with action buttons after successful download
         if upload_response.get('ok'):
@@ -1773,7 +1827,7 @@ def handle_download_data_button_click(ack, body, client):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"✅ *Data download complete!* Your file `{file_name}` has been uploaded above."
+                        "text": f"✅ *Data download complete!* Your file `{file_name}` is ready for download above. Hover over the data and select the download button."
                     }
                 },
                 get_action_buttons_block(include_show_sql=True, data_size=len(df), include_row_limit=True)
