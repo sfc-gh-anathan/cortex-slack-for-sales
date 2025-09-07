@@ -50,3 +50,4 @@ temp/
 
 # Snowflake CLI
 .snowsql/
+rsa_key.pub
