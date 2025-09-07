@@ -7,7 +7,7 @@
     },
     "features": {
         "bot_user": {
-            "display_name": "SALES DEMO SLACK",
+            "display_name": "CORTEX SLACK",
             "always_online": false
         }
     },
