@@ -120,49 +120,6 @@ WITH RECURSIVE hierarchy AS (
 )
 SELECT * FROM hierarchy;
 
--- 7. ACCESSIBLE_DATA_VIEW: Shows what data each employee can access based on entitlements
-CREATE OR REPLACE VIEW ACCESSIBLE_DATA AS
-SELECT DISTINCT
-    e.EMPLOYEE_ID as VIEWING_EMPLOYEE_ID,
-    sp.EMPLOYEE_ID as DATA_EMPLOYEE_ID,
-    sp.PERIOD_YEAR,
-    sp.PERIOD_MONTH,
-    sp.SALES_AMOUNT,
-    sp.UNITS_SOLD,
-    sp.QUOTA_ATTAINMENT,
-    CASE 
-        WHEN ent.CAN_VIEW_COMPENSATION THEN sp.COMMISSION_EARNED
-        ELSE NULL 
-    END as COMMISSION_EARNED,
-    CASE 
-        WHEN ent.CAN_VIEW_COMPENSATION THEN sp.TOTAL_COMPENSATION
-        ELSE NULL 
-    END as TOTAL_COMPENSATION,
-    se.FIRST_NAME,
-    se.LAST_NAME,
-    se.ROLE,
-    se.TERRITORY,
-    se.REGION
-FROM SALES_EMPLOYEES e
-CROSS JOIN SALES_PERFORMANCE sp
-INNER JOIN SALES_EMPLOYEES se ON sp.EMPLOYEE_ID = se.EMPLOYEE_ID
-INNER JOIN DATA_ENTITLEMENTS ent ON e.EMPLOYEE_ID = ent.EMPLOYEE_ID
-WHERE 
-    ent.EFFECTIVE_DATE <= CURRENT_DATE()
-    AND (ent.EXPIRY_DATE IS NULL OR ent.EXPIRY_DATE >= CURRENT_DATE())
-    AND (
-        -- Can see own data
-        (ent.ACCESS_LEVEL = 'SELF_ONLY' AND sp.EMPLOYEE_ID = e.EMPLOYEE_ID)
-        OR
-        -- Can see direct reports
-        (ent.ACCESS_LEVEL = 'DIRECT_REPORTS' AND se.MANAGER_ID = e.EMPLOYEE_ID)
-        OR
-        -- Can see entire team (same manager)
-        (ent.ACCESS_LEVEL = 'TEAM' AND se.MANAGER_ID = e.MANAGER_ID)
-        OR
-        -- Can see entire region
-        (ent.ACCESS_LEVEL = 'REGION' AND se.REGION = e.REGION)
-        OR
-        -- Can see all data
-        (ent.ACCESS_LEVEL = 'ALL')
-    );
+-- Note: ACCESSIBLE_DATA view removed for simplicity
+-- Use SALES_SEMANTIC_VIEW and TRANSACTION_SEMANTIC_VIEW for analytics
+-- DATA_ENTITLEMENTS table still available for permission analysis if needed

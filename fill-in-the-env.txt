@@ -1,20 +1,54 @@
-# You may edit the values below to match your Snowflake account and Slack bot
+# =============================================================================
+# Cortex Slack for Sales - Environment Configuration Template
+# =============================================================================
+# 
+# Instructions:
+# 1. Copy this file to .env in the same directory
+# 2. Fill in your specific values for the variables marked as required
+# 3. The .env file will be ignored by git to protect your secrets
+# =============================================================================
 
-ACCOUNT='SOMEACCOUNTNAME-ANATHAN_AWS'
-HOST='SOMEACCOUNTNAME-ANATHAN_AWS.snowflakecomputing.com'
-# the correct locator/account path here is not consistent. Use what is below or alter
-AGENT_ENDPOINT='https://ABC54834.us-east-1.snowflakecomputing.com/api/v2/cortex/agent:run'
-DEMO_USER='JANEDOE'
-DEMO_USER_ROLE='ACCOUNTADMIN'
-SLACK_BOT_TOKEN=
-SLACK_APP_TOKEN=
+# =============================================================================
+# SNOWFLAKE CONNECTION SETTINGS - REQUIRED
+# =============================================================================
+# Replace these with your actual Snowflake account details
+# ACCOUNT will be hyphenate of org and account name: 'SOMEACCOUNTORG-SOMEACCOUNTNAME'
 
-# do not edit below values unless you know what you are doing 
+ACCOUNT=ORG-ACCOUNT
+HOST=ORG-ACCOUNT.snowflakecomputing.com
+AGENT_ENDPOINT=https://ORG-ACCOUNT.snowflakecomputing.com/api/v2/cortex/agent:run
+DEMO_USER=YOUR_SNOWFLAKE_USERNAME
+DEMO_USER_ROLE=YOUR_ROLE
 
-DEMO_DATABASE='SLACK_SALES_DEMO'
-DEMO_SCHEMA='SLACK_SCHEMA'
-WAREHOUSE='SLACK_S'
-SEMANTIC_MODEL='@SLACK_SALES_DEMO.SLACK_SCHEMA.SLACK_SEMANTIC_MODELS/retail_sales_data.yaml'  
-SEARCH_SERVICE='SLACK_SALES_DEMO.SLACK_SCHEMA.info_search'
-RSA_PRIVATE_KEY_PATH='rsa_key.p8'
-MODEL = 'claude-4-sonnet' 
+# =============================================================================
+# SLACK INTEGRATION SETTINGS - REQUIRED
+# =============================================================================
+# Get these tokens from your Slack app configuration at api.slack.com
+
+SLACK_BOT_TOKEN=xoxb-your-bot-token-here
+SLACK_APP_TOKEN=xapp-your-app-token-here
+
+# =============================================================================
+# RSA KEY AUTHENTICATION - REQUIRED
+# =============================================================================
+# Path to your RSA private key file for Snowflake authentication
+
+RSA_PRIVATE_KEY_PATH=rsa_key.p8
+
+# =============================================================================
+# AI MODEL CONFIGURATION - OPTIONAL
+# =============================================================================
+# Cortex AI model to use for natural language processing
+
+MODEL=claude-4-sonnet
+
+# =============================================================================
+# DATABASE CONFIGURATION - DO NOT MODIFY
+# =============================================================================
+# These values should remain unchanged unless you customize the database setup
+
+DEMO_DATABASE=SLACK_SALES_DEMO
+DEMO_SCHEMA=SLACK_SCHEMA
+WAREHOUSE=SLACK_S
+SEMANTIC_MODEL=@SLACK_SALES_DEMO.SLACK_SCHEMA.SLACK_SEMANTIC_MODELS/sales_semantic_model.yaml
+SEARCH_SERVICE=SLACK_SALES_DEMO.SLACK_SCHEMA.info_search
