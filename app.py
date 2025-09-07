@@ -283,9 +283,14 @@ def add_refinement_button_to_message(message_ts, channel_id, app_client):
                 data_size = None
                 for element in block.get("elements", []):
                     if element.get("action_id") == ROW_LIMIT_DROPDOWN_ACTION_ID:
-                        # This message has data, so we can determine the size
-                        # For now, we'll use a default approach
-                        data_size = 100  # Default assumption
+                        # Extract the actual data size from the dropdown options
+                        options = element.get("options", [])
+                        if options:
+                            # Get the maximum value from the dropdown options
+                            max_option = max(int(opt["value"]) for opt in options)
+                            data_size = max_option
+                        else:
+                            data_size = 100  # Fallback
                         break
                 
                 # Replace the action buttons block with one that includes the refinement button
@@ -654,10 +659,7 @@ def _format_refinement_suggestions(suggestions):
     elif '-' in formatted and not formatted.startswith('•'):
         formatted = formatted.replace('- ', '• ')
     
-    # Add some visual hierarchy
-    if '?' in formatted:
-        # These are questions, make them stand out
-        formatted = f"❓ *Questions to clarify:*\n\n{formatted}"
+           # Visual hierarchy is already provided by the modal header
     
     return formatted
 
