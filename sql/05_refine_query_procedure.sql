@@ -5,7 +5,7 @@
 USE SLACK_SALES_DEMO.SLACK_SCHEMA;
 USE WAREHOUSE SLACK_S;
 
-CREATE OR REPLACE PROCEDURE "REFINE_QUERY"("STAGE_PATH" VARCHAR, "FILE_NAME" VARCHAR, "USER_PROMPT" VARCHAR)
+CREATE OR REPLACE PROCEDURE REFINE_QUERY("STAGE_PATH" VARCHAR, "FILE_NAME" VARCHAR, "USER_PROMPT" VARCHAR)
 RETURNS VARCHAR
 LANGUAGE PYTHON
 RUNTIME_VERSION = '3.9'
@@ -41,22 +41,29 @@ User Query: "{user_prompt}"
 
 Semantic Model: {file_content}
 
-Check if this query can be executed against the semantic model. Look at the dimensions, facts, time_dimensions, and their descriptions and identify gaps in the user''s questions. We are trying to help them see oversights in how they are expressing the nature of their question. We are trying to help them "refine" their question with better criteria. You can help because you understand the semantic model.
+You are a senior analyst. Analyze this prompt against the semantic model for genuine ambiguity that would produce different result sets.
+
+**Flag these ambiguity patterns:**
+1. **Ranking without metrics**: "top/best/worst salesperson" → Which metric: SALES_AMOUNT, QUOTA_ATTAINMENT, UNITS_SOLD, COMMISSION_EARNED?
+2. **Missing time periods**: "last month", "this year" → Which specific dates? Which date field?
+3. **Hierarchy scope**: "team performance" → Individual managers or their team''s aggregated results?
+
+**DO NOT flag when users specify:**
+- Mathematical terms: "average", "total", "sum" 
+- Explicit metrics: "by quota attainment", "total sales amount"
+- Clear qualifiers: "any single month", "highest performing team"
 
 Always respond in exactly this format:
-- If data not available: "This data is not available in the current dataset."
-- Do not itemize what data is available
-- If the prompt leaves too much room for interpretation or lacks clarity provide provide helpful follow up: from 1 to 3 [suggestion]"
-- If the prompt is very well constructed, don''t help if you don''t need to. Just write: "Prompt is appropriately specific."
-- NEVER restate the prompt itself and do NOT indicate what you will do to help refine their query. Only provide thoughtful questions like a senior analyst might.
+- If no genuine semantic model ambiguity exists: "Prompt is appropriately specific."
+- If user query needs clarification: Ask 1-3 clarifying questions that distinguish between actual semantic model metrics/entities
+- If semantic model design causes ambiguity: "The semantic model contains ambiguous naming/structure that makes this query unclear. Please contact the chatbot owner to address: [specific semantic model issue]."
 
 Be direct and concise.
-
 """
         
         # Call Cortex with the analysis prompt
         cortex_query = """
-        SELECT SNOWFLAKE.CORTEX.COMPLETE(''claude-4-sonnet'', ?) as result
+        SELECT SNOWFLAKE.CORTEX.COMPLETE(''openai-gpt-5'', ?) as result
         """
         
         cortex_result = session.sql(cortex_query, [cortex_prompt]).collect()
@@ -68,4 +75,4 @@ Be direct and concise.
         
     except Exception as e:
         return f"Error in refine_query: {str(e)}"
-';;
+';
