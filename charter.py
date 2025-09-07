@@ -189,8 +189,10 @@ def _plot_with_px(name: str, data_frame, **kwargs):
     if func is None:
         raise ValueError(f"No Plotly Express function found for key '{name}'")
 
-    # Convert datetime columns for consistent rendering
+    # Convert datetime columns for consistent rendering and fix dtype issues
     processed_data = data_frame.copy()
+    
+    # Handle datetime columns
     if 'x' in kwargs:
         x_col = kwargs['x']
         if x_col in processed_data.columns and processed_data[x_col].dtype.name.startswith('datetime'):
@@ -198,7 +200,35 @@ def _plot_with_px(name: str, data_frame, **kwargs):
             processed_data[x_col] = processed_data[x_col].dt.strftime('%Y-%m')
             print(f"Converted datetime column '{x_col}' to string format for plotting")
     
-    fig = func(processed_data, **kwargs)
+    # Fix mixed dtype issues that cause numpy promotion errors
+    for col in processed_data.columns:
+        try:
+            # Check if column has mixed types that could cause dtype promotion issues
+            if processed_data[col].dtype == 'object':
+                # Try to identify if it's actually numeric data stored as object
+                temp_numeric = pd.to_numeric(processed_data[col], errors='coerce')
+                if temp_numeric.notna().sum() > 0 and temp_numeric.notna().sum() / len(temp_numeric) > 0.8:
+                    # If 80% or more can be converted to numeric, convert the column
+                    processed_data[col] = temp_numeric
+                    print(f"Fixed mixed dtype in column '{col}' by converting to numeric")
+                else:
+                    # Ensure consistent string type
+                    processed_data[col] = processed_data[col].astype(str)
+                    print(f"Fixed mixed dtype in column '{col}' by converting to string")
+        except Exception as dtype_error:
+            print(f"⚠️ Could not fix dtype for column '{col}': {dtype_error}")
+            # Fallback: convert to string to avoid dtype conflicts
+            try:
+                processed_data[col] = processed_data[col].astype(str)
+            except:
+                pass  # If even string conversion fails, leave as-is
+    
+    try:
+        fig = func(processed_data, **kwargs)
+    except Exception as plot_error:
+        print(f"⚠️ Plotly function failed: {str(plot_error)}")
+        # Return fallback chart instead of crashing
+        return _create_fallback_chart(data_frame, getattr(_plot_with_px, '_current_prompt', 'Data Analysis'))
     
     # Enhance chart with dataset information
     data_description = f"Dataset: {processed_data.shape[0]} records across {processed_data.shape[1]} columns"
@@ -376,6 +406,80 @@ def _plot_with_px(name: str, data_frame, **kwargs):
         return fallback_fig
 
 
+def _create_fallback_chart(data: pd.DataFrame, original_prompt: str):
+    """
+    Creates a simple fallback chart when AI chart generation fails.
+    
+    Args:
+        data (pd.DataFrame): The dataset to visualize.
+        original_prompt (str): The user's original question.
+        
+    Returns:
+        plotly.graph_objects.Figure: A simple bar chart or informational message.
+    """
+    import plotly.graph_objects as go
+    
+    try:
+        # Try to create a simple bar chart with the first two columns
+        if len(data.columns) >= 2:
+            # Find the first text/categorical column and first numeric column
+            text_col = None
+            numeric_col = None
+            
+            for col in data.columns:
+                if text_col is None and (pd.api.types.is_object_dtype(data[col]) or pd.api.types.is_string_dtype(data[col])):
+                    text_col = col
+                elif numeric_col is None and pd.api.types.is_numeric_dtype(data[col]):
+                    numeric_col = col
+                
+                if text_col and numeric_col:
+                    break
+            
+            if text_col and numeric_col:
+                # Create a simple bar chart
+                fig = go.Figure(data=[
+                    go.Bar(
+                        x=data[text_col].head(10),  # Limit to first 10 rows
+                        y=data[numeric_col].head(10),
+                        name=numeric_col
+                    )
+                ])
+                fig.update_layout(
+                    title=f"Fallback Chart: {original_prompt[:50]}...",
+                    xaxis_title=text_col,
+                    yaxis_title=numeric_col,
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    height=400
+                )
+                return fig
+    
+    except Exception as fallback_error:
+        print(f"⚠️ Fallback chart creation also failed: {str(fallback_error)}")
+    
+    # Ultimate fallback - just show a message
+    fig = go.Figure()
+    fig.add_annotation(
+        text=f"📊 Chart generation failed<br><br>Dataset: {len(data):,} rows, {len(data.columns)} columns<br><br>Question: {original_prompt[:100]}...",
+        xref="paper", yref="paper",
+        x=0.5, y=0.5, xanchor='center', yanchor='middle',
+        showarrow=False,
+        font=dict(size=14, color="darkblue"),
+        bgcolor="lightblue",
+        bordercolor="blue",
+        borderwidth=2
+    )
+    fig.update_layout(
+        title="Chart Generation Error",
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        height=400
+    )
+    return fig
+
+
 def ai_plot(session: Session, original_prompt: str, data: pd.DataFrame):
     """
     Generates a Plotly Express visualization based on a dataset and user query using an AI model.
@@ -532,12 +636,24 @@ def ai_plot(session: Session, original_prompt: str, data: pd.DataFrame):
     _plot_with_px._original_size = original_size
     _plot_with_px._was_sampled = len(data) < original_size
     
-    # Generate and return the visualization.
-    result = _plot_with_px(function_name, data, **kwargs)
+    try:
+        # Generate and return the visualization.
+        result = _plot_with_px(function_name, data, **kwargs)
+        
+        # Clean up the references
+        for attr in ['_current_prompt', '_original_size', '_was_sampled']:
+            if hasattr(_plot_with_px, attr):
+                delattr(_plot_with_px, attr)
+        
+        return result
     
-    # Clean up the references
-    for attr in ['_current_prompt', '_original_size', '_was_sampled']:
-        if hasattr(_plot_with_px, attr):
-            delattr(_plot_with_px, attr)
-    
-    return result
+    except Exception as ai_plot_error:
+        print(f"⚠️ AI plot generation failed: {str(ai_plot_error)}")
+        
+        # Clean up the references even in error case
+        for attr in ['_current_prompt', '_original_size', '_was_sampled']:
+            if hasattr(_plot_with_px, attr):
+                delattr(_plot_with_px, attr)
+        
+        # Return fallback chart
+        return _create_fallback_chart(data, original_prompt)

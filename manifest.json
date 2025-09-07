@@ -1,6 +1,6 @@
 {
     "display_information": {
-        "name": "Sales-Demo-Slack",
+        "name": "Cortex-Slack",
         "description": "A Cortex Analyst implementation via Slack",
         "background_color": "#000000",
         "long_description": "Instantly access Snowflake insights right from Slack. Our app lets you query your data using natural language, getting answers and charts without leaving your team's conversations. Boost productivity and democratize data access for everyone."
